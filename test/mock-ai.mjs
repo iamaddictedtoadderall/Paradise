@@ -12,7 +12,7 @@ export function mockAI({ refuse = new Set(), failOnce = new Set() } = {}) {
       const id = { 'Ruth Okafor': 'ruth', 'Tomás Reyes': 'tomas', 'Hana Sato': 'hana', 'Pavel Lindqvist': 'pavel', 'Grace Mwangi': 'grace', 'Dr. Elias Haddad': 'elias', 'Danny Kealoha': 'danny', 'Victoria Ashworth': 'victoria' }[name];
       if (refuse.has(id)) throw { kind: 'skip', code: 'refused' };
       if (failOnce.has(id) && !failed.has(id)) { failed.add(id); throw { kind: 'pause', code: 'upstream_error', message: 'try again' }; }
-      const evening = prompt.includes('"eat"');
+      const evening = prompt.includes('"trust"');
       if (evening) {
         return { inner: 'Another day.', go: 'GAL', say: [{ to: 'all', text: `${name.split(' ')[0]} here. Long day.` }], do: 'I eat with the others.', eat: [{ item: 'ration_pack', qty: 3 }], trust: { Ruth: 2, Tomás: 1, Victoria: -1 } };
       }

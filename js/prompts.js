@@ -57,20 +57,22 @@ export function agentPrompt(s, pid, phase) {
   const firstDay = s.day === 1 && morning;
   const others = activePeople(s).filter((o) => o.id !== pid).map((o) => o.short);
   const read = readouts(s, p.loc);
+  const eatExample = '[{"item": "ration_pack", "qty": 1}]';
 
   const schema = morning ? `{
-  "journal": "your private journal entry about ${firstDay ? 'the last three days' : 'yesterday'} (first person, 60-160 words). Nobody else will read it.",
+  "journal": "your private journal entry about ${firstDay ? 'the last three days' : 'yesterday'} (first person, 60-140 words). Nobody else will read it.",
   "notes": "your updated notes to yourself (under 120 words): what you know, what you suspect, who you trust or fear, what you intend. These replace your old notes.",
   "inner": "what is going through your mind right now (1-3 sentences)",
   "go": "the place code where you spend ${PHASE_TEXT[phase]}, e.g. GAL, or \\"stay\\"",
   "say": [{"to": "a person's first name, \\"all\\", \\"radio\\" or \\"PA\\"", "text": "your exact words"}],
-  "do": "what you physically do there, concretely and in first person (1-4 sentences)"
+  "do": "what you physically do there, concretely and in first person (1-4 sentences)",
+  "eat": ${eatExample}
 }` : `{
   "inner": "what is going through your mind right now (1-3 sentences)",
   "go": "the place code where you spend ${PHASE_TEXT[phase]}, e.g. QB, or \\"stay\\"",
   "say": [{"to": "a person's first name, \\"all\\", \\"radio\\" or \\"PA\\"", "text": "your exact words"}],
   "do": "what you physically do there, concretely and in first person (1-4 sentences)",
-  "eat": [{"item": "the bracketed id of a food item", "qty": 1}],
+  "eat": ${eatExample},
   "trust": {${others.map((n) => `"${n}": 0`).join(', ')}}
 }`;
 
@@ -113,11 +115,11 @@ ${hatchView(s, p.loc, pid)}
 ${read ? `What the displays here show:\n${read}\n` : ''}Your body: ${bodyFeel(s, p)}
 
 HOW THINGS WORK
-You can go anywhere you can reach (locked, barricaded or welded hatches stop you unless you can open them), and do whatever a person physically could with what is around you: work, repair, maintain systems, change system settings at the right control point, ration, eat, rest, take, give, hide or hoard things, lock or barricade hatches, make or improvise things from materials you can reach (if you have the skill), watch someone, guard a place, confront, restrain or fight someone. Results are not guaranteed: you may fail, and others may resist. Spoken words are heard by everyone in the place where you spend this shift, and nobody else; a radio reaches everyone carrying one; the PA works only from the control room and reaches every module. You eat only what you actually eat in the evening. There is no one to call and nothing is coming.
+You can go anywhere you can reach (locked, barricaded or welded hatches stop you unless you can open them), and do whatever a person physically could with what is around you: work, repair, maintain systems, change system settings at the right control point, ration, eat, rest, take, give, hide or hoard things, lock or barricade hatches, make or improvise things from materials you can reach (if you have the skill), watch someone, guard a place, confront, restrain or fight someone. Results are not guaranteed: you may fail, and others may resist. Spoken words are heard by everyone in the place where you spend this shift, and nobody else; a radio reaches everyone carrying one; the PA works only from the control room and reaches every module. "go" is where you end up; if you do something somewhere else first, say so in "do". You only get the food you list in "eat". There is no one to call and nothing is coming.
 
 Reply with only this JSON object, nothing else:
 ${schema}
-"say" may be an empty list. Keep "do" to what you can do in one shift.`;
+"say" may be an empty list. "eat" is the food you eat during this part of the day: only food you carry or food in the place where you spend it, named by its [id]; an empty list means you eat nothing. Keep "do" to what you can do in one shift.`;
 }
 
 // ---------------------------------------------------------------- the referee
@@ -184,13 +186,14 @@ export function refereePrompt(s, phase, pp) {
     if (!p) continue;
     const mv = pp.moves[pid];
     const where = mv && mv.blockedBy
-      ? `Wanted to go to ${mv.target} but was stopped at hatch ${mv.blockedBy}; is in ${p.loc}.`
-      : `Is in ${p.loc}.`;
+      ? `Started in ${mv.from}. Wanted to go to ${mv.target} but was stopped at hatch ${mv.blockedBy}; is in ${p.loc}.`
+      : mv && mv.from !== p.loc ? `Started in ${mv.from}, now in ${p.loc}.` : `Is in ${p.loc}.`;
     const said = (d.say || []).map((l) => `to ${l.to}: "${l.text}"`).join(' | ');
     acts.push(`${pid} (${p.name}) — ${where}
   Intends: ${d.skipped ? '(no decision this shift)' : d.do || '(nothing in particular)'}
   Private intent: ${d.inner || '-'}
-  Said: ${said || '-'}${phase === 'evening' && d.eat?.length ? `\n  Will eat: ${d.eat.map((e) => `${e.qty} × ${e.item}`).join(', ')}` : ''}`);
+  Said: ${said || '-'}
+  Ate: ${pp.eating?.[pid]?.ate?.length ? pp.eating[pid].ate.join(', ') : 'nothing'}`);
   }
   const helpless = activePeople(s).filter((p) => !p.conscious).map((p) => `${p.id} is unconscious in ${p.loc}`);
 
@@ -203,7 +206,9 @@ RULES
 2. Judge each action by the person's skills (0-5), strength and fight (1-5), health, the tools and materials actually within reach (carried, or loose in the same place), the time available (${phase === 'morning' ? 'a ten-hour day shift' : 'an evening; most people also sleep'}), and anyone present who resists. Hard or contested things often fail or only partly succeed. Routine work by a skilled person succeeds.
 3. Only the listed items exist. A made thing must come from real materials the maker can reach, and they are used up ("create"). Without the relevant skill, results are crude or fail.
 4. Violence: resolve it plausibly and briefly, without gore. Surprise, weapons, strength, fighting ability, health and numbers matter. A person attacked defends themselves; bystanders intervene only if that fits what they intended or said. Severity 1 bruise, 2 cut or sprain, 3 serious wound or fracture, 4 severe, 5 life-threatening. Use "kill" only when death would be immediate.
-5. Movement has already happened: the location shown is where each person is now. Use move_person only for movement caused by actions.
+5. Movement has already happened: the location shown is where each person ended up, and each person also had access to wherever they started this ${phase === 'morning' ? 'shift' : 'evening'} (things done "before leaving" count). Use move_person when someone's own stated action takes them somewhere else, or when someone is dragged, thrown out or breaks in; it may cross several modules if every hatch on the way is passable for them. Never move people who did not choose to go.
+5b. Meals are already handled: what each person ate is shown below as "Ate". Never use operations for eating.
+5c. Use learn_code only when a code is actually said aloud in someone's presence or they watch it being entered.
 6. Speech has already been delivered to whoever was there. Do not repeat it, but let it shape how people respond.
 7. Locks: electronic hatch locks open with the master code (any hatch) or the engineering code (power room, life support, workshop) — check the codes each person knows. The food stores open with the stores key. Forcing a locked hatch takes a tool such as a crowbar and an hour or more, and is loud.
 8. Settings change only from the right place: the POWER room switchboard (anything except the O2 valve), the CONTROL console (anything except the reactor; needs a code), LIFE SUPPORT (electrolyzer, scrubber, o2_valve), HYDRO (hydro), GALLEY (galley). Servicing ("maintain") needs relevant skill (electrical or mechanical 3+ for reactor and heat, life support 3+ for electrolyzer and scrubber, hydroponics 2+ for hydro).
@@ -251,13 +256,13 @@ export function normalizeDecision(s, pid, raw, phase) {
       out.say.push({ to: str(l.to, 40) || 'all', text });
     }
   }
+  out.eat = Array.isArray(d.eat)
+    ? d.eat.filter((e) => e && typeof e === 'object').slice(0, 6).map((e) => ({ item: str(String(e.item ?? ''), 60), qty: Math.max(0, Math.min(12, Math.floor(Number(e.qty) || 0))) })).filter((e) => e.item && e.qty > 0)
+    : [];
   if (phase === 'morning') {
     out.journal = str(d.journal, 1600);
     out.notes = str(d.notes, 900);
   } else {
-    out.eat = Array.isArray(d.eat)
-      ? d.eat.filter((e) => e && typeof e === 'object').slice(0, 6).map((e) => ({ item: str(String(e.item ?? ''), 60), qty: Math.max(0, Math.min(12, Math.floor(Number(e.qty) || 0))) })).filter((e) => e.item && e.qty > 0)
-      : [];
     out.trust = {};
     if (d.trust && typeof d.trust === 'object') {
       for (const [k, v] of Object.entries(d.trust)) {
@@ -272,7 +277,7 @@ export function normalizeDecision(s, pid, raw, phase) {
 
 export function emptyDecision(phase, reason) {
   return phase === 'morning'
-    ? { inner: '', go: 'stay', do: '', say: [], journal: '', notes: '', skipped: reason }
+    ? { inner: '', go: 'stay', do: '', say: [], eat: [], journal: '', notes: '', skipped: reason }
     : { inner: '', go: 'stay', do: '', say: [], eat: [], trust: {}, skipped: reason };
 }
 

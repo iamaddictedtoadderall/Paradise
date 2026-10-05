@@ -4,7 +4,7 @@
 import { NODES } from './data.js';
 import {
   actingPeople, activePeople, route, peopleAt, carriedBy, applyOps, applyEating, dailyTick,
-  checkEnd, neighbors, resolvePersonId, itemsAt, STABLE_DAYS_TO_END,
+  checkEnd, neighbors, resolvePersonId, itemsAt, geometricPath, STABLE_DAYS_TO_END,
 } from './engine.js';
 import { agentPrompt, refereePrompt, normalizeDecision, emptyDecision, normalizeReferee, placeName } from './prompts.js';
 
@@ -96,7 +96,10 @@ function observationFor(s, pid, phase, pp, gm, speech, eating) {
     if (so.reach === 'station' || near) out.push(`From the direction of ${placeName(so.from)}: ${so.text}`);
   }
   if (eating && eating.ate.length) out.push(`You ate ${eating.ate.join(', ')} (about ${eating.kcal} kcal).`);
-  else if (phase === 'evening') out.push('You ate nothing today.');
+  if (phase === 'evening') {
+    const k = Math.round(p.intakeToday);
+    out.push(k > 0 ? `Altogether today you ate about ${k} kcal.` : 'You ate nothing at all today.');
+  }
   const bodies = itemsAt(s, p.loc).filter((i) => i.tags?.includes('body'));
   for (const b of bodies) out.push(`The ${b.name} is here.`);
   return out.join('\n');
@@ -160,6 +163,11 @@ export async function runPhase(s, ai, { tierAgents = 'default', tierReferee = 'd
       pp.moves[pid] = { from, target: r.target, reached: r.reached, blockedBy: r.blockedBy };
     }
     pp.speech = deliverSpeech(s, pp.decisions);
+    // Meals happen where people spend the shift, before the referee looks at it.
+    pp.eating = {};
+    for (const [pid, d] of Object.entries(pp.decisions)) {
+      if (d.eat?.length) pp.eating[pid] = applyEating(s, pid, d.eat);
+    }
     await checkpoint(s);
   }
 
@@ -183,15 +191,18 @@ export async function runPhase(s, ai, { tierAgents = 'default', tierReferee = 'd
   }
   const gm = pp.gm;
 
-  // 4. Apply what happened.
-  const { applied, rejected } = applyOps(s, gm.ops);
+  // 4. Apply what happened. People may have acted anywhere they were this phase.
+  const visited = {};
+  const ends = {};
+  for (const [pid, m] of Object.entries(pp.moves)) {
+    visited[pid] = [...new Set([m.from, m.reached, ...(geometricPath(s, m.from, m.reached) || [])])];
+    ends[pid] = [m.from, m.reached];
+  }
+  const { applied, rejected } = applyOps(s, gm.ops, { visited, ends });
   for (const u of gm.unknownOps || []) rejected.push({ op: u, reason: 'not a known operation' });
   for (const [pid, ex] of Object.entries(gm.exertion)) if (s.people[pid]) s.people[pid].exertion = ex;
 
-  const eating = {};
-  if (phase === 'evening') {
-    for (const [pid, d] of Object.entries(pp.decisions)) eating[pid] = applyEating(s, pid, d.eat);
-  }
+  const eating = pp.eating || {};
   for (const [pid, d] of Object.entries(pp.decisions)) {
     const p = s.people[pid];
     if (phase === 'morning' && !d.skipped) {

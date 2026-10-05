@@ -193,3 +193,46 @@ test('runs end after enough quiet days', async () => {
   assert.ok(checkEnd(s));
   assert.ok(foodKcal(s) > 500000);
 });
+
+// Regressions from the first real run (day 1-2).
+import { repairJSON } from '../js/ai.js';
+
+test('food named loosely still gets eaten, but only within reach', () => {
+  const s = newRunState('t');
+  for (const id of ['ruth', 'hana', 'pavel', 'grace']) s.people[id].loc = 'GAL';
+  assert.equal(applyEating(s, 'ruth', [{ item: 'ration_pack#2', qty: 1 }]).kcal, 600);
+  assert.equal(applyEating(s, 'pavel', [{ item: 'ration_meal', qty: 1 }]).kcal, 600);
+  assert.equal(applyEating(s, 'hana', [{ item: 'GAL', qty: 1 }]).kcal, 600);
+  assert.equal(applyEating(s, 'grace', [{ item: 'ration', qty: 2 }]).kcal, 1200);
+  s.people.danny.loc = 'QB';
+  assert.equal(applyEating(s, 'danny', [{ item: 'ration_pack', qty: 1 }]).kcal, 0, 'no food in the quarters');
+});
+
+test('the referee consuming food for someone counts as them eating', () => {
+  const s = newRunState('t');
+  s.people.tomas.loc = 'GAL';
+  applyOps(s, [{ op: 'take', person: 'tomas', item: 'ration_pack', qty: 1 }, { op: 'consume', item: 'ration_pack', qty: 1, by: 'tomas' }]);
+  assert.equal(s.people.tomas.intakeToday, 600);
+});
+
+test('things done before leaving, and moves across several modules', () => {
+  const s = newRunState('t');
+  s.people.pavel.loc = 'GAL'; // walked from the power room to the galley this phase
+  let r = applyOps(s, [{ op: 'set_system', system: 'heat', level: 0.65, by: 'pavel' }]);
+  assert.equal(r.applied.length, 0, 'not without having been there');
+  r = applyOps(s, [{ op: 'set_system', system: 'heat', level: 0.65, by: 'pavel' }], { visited: { pavel: ['PWR', 'AH', 'MC', 'GAL'] }, ends: { pavel: ['PWR', 'GAL'] } });
+  assert.equal(r.applied.length, 1);
+  assert.equal(s.levels.heat, 0.65);
+  r = applyOps(s, [{ op: 'move_person', person: 'tomas', to: 'GAL' }]);
+  assert.equal(r.applied.length, 1, 'QB to galley crosses the forward hub and corridor');
+  assert.equal(s.people.tomas.loc, 'GAL');
+  r = applyOps(s, [{ op: 'move_person', person: 'tomas', to: 'PWR' }]);
+  assert.equal(r.applied.length, 0, 'still cannot pass the locked power room');
+});
+
+test('almost-JSON replies are repaired', () => {
+  assert.deepEqual(repairJSON('Here you go:\n{"inner": "a\nb", "go": "GAL",}'), { inner: 'a\nb', go: 'GAL' });
+  assert.deepEqual(repairJSON('{"inner": "cut off mid-sent'), { inner: 'cut off mid-sent' });
+  assert.deepEqual(repairJSON('{"say": [{"to": "all", "text": "hi"}'), { say: [{ to: 'all', text: 'hi' }] });
+  assert.equal(repairJSON('no json here'), null);
+});

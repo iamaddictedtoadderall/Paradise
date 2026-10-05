@@ -26,6 +26,47 @@ function classify(e) {
   return { kind: 'fatal', code, message: ERROR_COPY[code] || 'Claude is not available to this page.' };
 }
 
+// A reply that failed strict parsing is often valid JSON with a raw newline inside a
+// string, a trailing comma, or a missing final brace. Repairing it is parsing, not a retry.
+export function repairJSON(text) {
+  if (typeof text !== 'string') return null;
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+  const src = text.slice(start);
+  const attempt = (t) => { try { return JSON.parse(t); } catch { return undefined; } };
+  const end = src.lastIndexOf('}');
+  if (end > 0) {
+    const r = attempt(src.slice(0, end + 1));
+    if (r && typeof r === 'object') return r;
+  }
+  let out = '';
+  let inStr = false;
+  let esc = false;
+  const stack = [];
+  for (const ch of src) {
+    if (inStr) {
+      if (esc) { esc = false; out += ch; continue; }
+      if (ch === '\\') { esc = true; out += ch; continue; }
+      if (ch === '"') { inStr = false; out += ch; continue; }
+      if (ch === '\n') { out += '\\n'; continue; }
+      if (ch === '\r') continue;
+      if (ch === '\t') { out += '\\t'; continue; }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+    else if (ch === '}' || ch === ']') stack.pop();
+    out += ch;
+    if (!stack.length && ch === '}') break;
+  }
+  if (inStr) out += '"';
+  out = out.replace(/,\s*([}\]])/g, '$1');
+  while (stack.length) out = out.replace(/,\s*$/, '') + stack.pop();
+  const r = attempt(out);
+  return r && typeof r === 'object' ? r : null;
+}
+
 export function sampleAI(sample, { signal } = {}) {
   const call = async (prompt, tier) => {
     try {
@@ -34,6 +75,10 @@ export function sampleAI(sample, { signal } = {}) {
       if (sig) opts.signal = sig;
       return await sample.json(prompt, opts);
     } catch (e) {
+      if (e && e.code === 'invalid_json') {
+        const fixed = repairJSON(e.text);
+        if (fixed) return fixed;
+      }
       throw classify(e);
     }
   };

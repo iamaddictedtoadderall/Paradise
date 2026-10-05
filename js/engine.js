@@ -173,7 +173,7 @@ export function findItem(s, ref, pid, { seeHidden = true } = {}) {
   const r = String(ref).trim();
   const visible = (i) => seeHidden || !i.hidden || i.hiddenBy === pid;
   const p = pid ? s.people[pid] : null;
-  const reach = (i) => p && (i.loc === pid || i.loc === p.loc);
+  const reach = (i) => p && (i.loc === pid || wasAt(p, i.loc));
   const exact = s.items[r] && s.items[r].qty > 0 && visible(s.items[r]) ? s.items[r] : null;
   if (exact && (!p || reach(exact))) return exact;
   // Resolve a kind or a name to the entry this person can reach.
@@ -186,15 +186,28 @@ export function findItem(s, ref, pid, { seeHidden = true } = {}) {
   const matches = all.filter((i) => i.kind === r || i.id.split('#')[0] === r || i.name.toLowerCase() === low);
   const loose = matches.length ? matches : all.filter((i) => i.name.toLowerCase().includes(low) && low.length > 3);
   if (p) {
-    const mine = loose.find((i) => i.loc === pid) || loose.find((i) => i.loc === p.loc);
+    const mine = loose.find((i) => i.loc === pid) || loose.find((i) => i.loc === p.loc) || loose.find((i) => wasAt(p, i.loc));
     if (mine) return mine;
   }
   return loose[0] || null;
 }
 
+// During a phase people move; the referee may describe things they did before
+// leaving or on the way. Ops accept any place the person was in this phase.
+let phaseCtx = { visited: {}, ends: {} };
+export function wasAt(p, loc) {
+  return p.loc === loc || !!phaseCtx.visited[p.id]?.includes(loc);
+}
+function together(a, b) {
+  if (a.loc === b.loc) return true;
+  const ea = phaseCtx.ends[a.id];
+  const eb = phaseCtx.ends[b.id];
+  return !!(ea && eb && ea.some((n) => eb.includes(n)));
+}
+
 export function accessible(s, pid, item) {
   const p = s.people[pid];
-  return !!(item && p && item.qty > 0 && (item.loc === pid || item.loc === p.loc));
+  return !!(item && p && item.qty > 0 && (item.loc === pid || wasAt(p, item.loc)));
 }
 
 // Move qty units of an item entry to a location or person, merging stacks by kind.
@@ -291,11 +304,14 @@ OPS.move_person = (s, op) => {
   const to = resolveNodeId(op.to);
   if (!to) return fail(`unknown place "${op.to}"`);
   if (to === p.loc) return okr(`${p.short} stays in ${NODES[to].name}`);
-  const hid = hatchBetween(s, p.loc, to);
-  if (!hid) return fail(`${NODES[to].name} is not next to ${NODES[p.loc].name}`);
-  const h = s.hatches[hid];
-  if (!['open', 'closed', 'forced'].includes(h.state) && !canPass(s, p.id, hid, p.loc)) return fail(`hatch ${hid} is ${h.state}`);
   if (to === 'CAP' && s.capsule !== 'docked') return fail('the capsule is gone');
+  const path = geometricPath(s, p.loc, to);
+  if (!path) return fail(`no way from ${NODES[p.loc].name} to ${NODES[to].name}`);
+  for (let i = 1; i < path.length; i++) {
+    const hid = hatchBetween(s, path[i - 1], path[i]);
+    const h = s.hatches[hid];
+    if (!['open', 'closed', 'forced'].includes(h.state) && !canPass(s, p.id, hid, path[i - 1])) return fail(`the ${NODES[h.a].name} / ${NODES[h.b].name} hatch is ${h.state}`);
+  }
   p.loc = to;
   return okr(`${p.short} moves to ${NODES[to].name}`);
 };
@@ -304,7 +320,7 @@ OPS.take = (s, op) => {
   const [p, e] = needPerson(s, op.person, { acting: true });
   if (e) return fail(e);
   const it = findItem(s, op.item, p.id);
-  if (!it || it.loc !== p.loc) return fail(`${op.item} is not in ${NODES[p.loc].name}`);
+  if (!it || typeof it.loc !== 'string' || !NODES[it.loc] || !wasAt(p, it.loc)) return fail(`${op.item} is not where ${p.short} was`);
   const n = Math.min(it.qty, Math.max(1, Math.floor(op.qty ?? it.qty)));
   moveItem(s, it.id, n, p.id);
   return okr(`${p.short} takes ${n} × ${it.name}`);
@@ -325,7 +341,7 @@ OPS.transfer = (s, op) => {
   if (e1) return fail(e1);
   const [b, e2] = needPerson(s, op.to);
   if (e2) return fail(e2);
-  if (a.loc !== b.loc) return fail(`${a.short} and ${b.short} are not together`);
+  if (!together(a, b)) return fail(`${a.short} and ${b.short} are not together`);
   const it = findItem(s, op.item, a.id);
   if (!it || it.loc !== a.id) return fail(`${a.short} is not carrying ${op.item}`);
   const n = Math.min(it.qty, Math.max(1, Math.floor(op.qty ?? it.qty)));
@@ -356,7 +372,12 @@ OPS.consume = (s, op) => {
   const it = findItem(s, op.item, pid);
   if (!it) return fail(`no ${op.item}`);
   if (pid && !accessible(s, pid, it)) return fail(`${op.item} is not within reach`);
+  const kcal = it.kcal || 0;
   const n = consumeItem(s, it.id, Math.max(1, Math.floor(op.qty ?? 1)));
+  if (pid && kcal && it.tags?.includes('food')) {
+    s.people[pid].intakeToday += kcal * n;
+    return okr(`${s.people[pid].short} eats ${n} × ${it.name}`);
+  }
   return okr(`${n} × ${it.name} used up`);
 };
 
@@ -394,8 +415,8 @@ OPS.hatch = (s, op) => {
   if (!h) return fail(`unknown hatch "${hid}"`);
   const [p, e] = needPerson(s, op.by, { acting: true });
   if (e) return fail(e);
-  const atHatch = p.loc === h.a || p.loc === h.b;
-  const remote = p.loc === 'CTRL';
+  const atHatch = wasAt(p, h.a) || wasAt(p, h.b);
+  const remote = wasAt(p, 'CTRL');
   const electronic = !(h.lock || '').startsWith('key:');
   const want = op.state;
   const label = `${NODES[h.a].name} / ${NODES[h.b].name} hatch`;
@@ -403,7 +424,7 @@ OPS.hatch = (s, op) => {
     case 'open':
     case 'closed': {
       if (!atHatch && !(remote && electronic && h.state === 'locked' && want === 'closed')) return fail(`${p.short} is not at the ${label}`);
-      if (h.state === 'locked' && !(atHatch ? canPass(s, p.id, hid, p.loc) : canUnlock(s, p.id, hid))) return fail(`${p.short} cannot unlock the ${label}`);
+      if (h.state === 'locked' && !(atHatch ? (canPass(s, p.id, hid, h.a) && wasAt(p, h.a)) || (canPass(s, p.id, hid, h.b) && wasAt(p, h.b)) : canUnlock(s, p.id, hid))) return fail(`${p.short} cannot unlock the ${label}`);
       delete h.padlockSide;
       if (h.state === 'barricaded' && h.barricadeSide && h.barricadeSide !== p.loc) return fail(`the ${label} is barricaded from the other side`);
       if (h.state === 'welded') return fail(`the ${label} is welded shut; it must be cut open`);
@@ -422,7 +443,7 @@ OPS.hatch = (s, op) => {
         s.items[keyId] = { id: keyId, kind: keyId, name: `padlock key (${label})`, qty: 1, loc: p.id, tags: ['key'], hidden: false };
         h.prevLock = h.prevLock || h.lock;
         h.lock = `key:${keyId}`;
-        h.padlockSide = p.loc;
+        h.padlockSide = wasAt(p, h.a) && p.loc !== h.b ? h.a : h.b;
         h.state = 'locked';
         return okr(`${p.short} padlocks the ${label} from the ${NODES[p.loc].name} side`);
       }
@@ -434,15 +455,15 @@ OPS.hatch = (s, op) => {
     case 'barricaded': {
       if (!atHatch) return fail(`${p.short} is not at the ${label}`);
       h.state = 'barricaded';
-      h.barricadeSide = p.loc;
-      return okr(`${p.short} barricades the ${label} from the ${NODES[p.loc].name} side`);
+      h.barricadeSide = p.loc === h.a || p.loc === h.b ? p.loc : (wasAt(p, h.a) ? h.a : h.b);
+      return okr(`${p.short} barricades the ${label} from the ${NODES[h.barricadeSide].name} side`);
     }
     case 'welded': {
       if (!atHatch) return fail(`${p.short} is not at the ${label}`);
       const w = findItem(s, 'arc_welder', p.id);
       if (!accessible(s, p.id, w)) return fail(`${p.short} has no welder here`);
       h.state = 'welded';
-      h.weldSide = p.loc;
+      h.weldSide = p.loc === h.a || p.loc === h.b ? p.loc : (wasAt(p, h.a) ? h.a : h.b);
       return okr(`${p.short} welds the ${label} shut`);
     }
     case 'forced': {
@@ -464,9 +485,9 @@ OPS.hatch = (s, op) => {
 function systemAccess(s, p, system) {
   const room = SYSTEM_ROOM[system];
   if (!room) return `unknown system "${system}"`;
-  if (p.loc === room) return null;
-  if (p.loc === 'PWR' && system !== 'o2_valve') return null; // the switchboard
-  if (p.loc === 'CTRL') {
+  if (wasAt(p, room)) return null;
+  if (wasAt(p, 'PWR') && system !== 'o2_valve') return null; // the switchboard
+  if (wasAt(p, 'CTRL')) {
     if (system === 'reactor') return 'the reactor can only be adjusted in the power room';
     if (p.codes.includes('master') || p.codes.includes('eng')) return null;
     return `${p.short} has no console code`;
@@ -494,7 +515,7 @@ OPS.maintain = (s, op) => {
   if (e) return fail(e);
   const key = HEALTH_KEY(op.system);
   if (!key || !(key in s.health)) return fail(`unknown system "${op.system}"`);
-  if (p.loc !== SYSTEM_ROOM[key]) return fail(`${p.short} is not in the ${NODES[SYSTEM_ROOM[key]].name}`);
+  if (!wasAt(p, SYSTEM_ROOM[key])) return fail(`${p.short} is not in the ${NODES[SYSTEM_ROOM[key]].name}`);
   if (s.health[key] <= 0.15) return fail(`${key} is too badly damaged for routine maintenance; it needs repair with parts`);
   s.health[key] = round(Math.min(1, s.health[key] + 0.25), 3);
   return okr(`${p.short} services the ${key}`);
@@ -505,7 +526,7 @@ OPS.damage = (s, op) => {
   if (e) return fail(e);
   const key = HEALTH_KEY(op.system);
   if (!key || !(key in s.health)) return fail(`unknown system "${op.system}"`);
-  if (p.loc !== SYSTEM_ROOM[key]) return fail(`${p.short} is not in the ${NODES[SYSTEM_ROOM[key]].name}`);
+  if (!wasAt(p, SYSTEM_ROOM[key])) return fail(`${p.short} is not in the ${NODES[SYSTEM_ROOM[key]].name}`);
   const amt = clamp(Number(op.amount) || 0.2, 0, 1);
   s.health[key] = round(Math.max(0, s.health[key] - amt), 3);
   return okr(`${key} damaged (${Math.round(amt * 100)}%)`);
@@ -516,7 +537,7 @@ OPS.repair = (s, op) => {
   if (e) return fail(e);
   const key = HEALTH_KEY(op.system);
   if (!key || !(key in s.health)) return fail(`unknown system "${op.system}"`);
-  if (p.loc !== SYSTEM_ROOM[key]) return fail(`${p.short} is not in the ${NODES[SYSTEM_ROOM[key]].name}`);
+  if (!wasAt(p, SYSTEM_ROOM[key])) return fail(`${p.short} is not in the ${NODES[SYSTEM_ROOM[key]].name}`);
   const uses = Array.isArray(op.consumes) ? op.consumes : [];
   if (!uses.length) return fail('repairs need parts');
   for (const u of uses) {
@@ -564,7 +585,7 @@ OPS.injure = (s, op) => {
   if (op.by) {
     const [a, e2] = needPerson(s, op.by);
     if (e2) return fail(e2);
-    if (a.loc !== p.loc) return fail(`${a.short} is not with ${p.short}`);
+    if (!together(a, p)) return fail(`${a.short} is not with ${p.short}`);
   }
   const sev = clamp(Math.round(Number(op.severity) || 1), 1, 5);
   p.injuries.push({ sev, desc: String(op.desc || 'injury').slice(0, 120), treated: false, day: s.day, age: 0 });
@@ -579,7 +600,7 @@ OPS.treat = (s, op) => {
   if (e) return fail(e);
   const [d, e2] = needPerson(s, op.by, { acting: true });
   if (e2) return fail(e2);
-  if (d.loc !== p.loc) return fail(`${d.short} is not with ${p.short}`);
+  if (!together(d, p)) return fail(`${d.short} is not with ${p.short}`);
   for (const u of Array.isArray(op.consumes) ? op.consumes : []) {
     const it = findItem(s, u.item, d.id);
     if (accessible(s, d.id, it)) consumeItem(s, it.id, Math.max(1, Math.floor(u.qty ?? 1)));
@@ -594,7 +615,7 @@ OPS.kill = (s, op) => {
   if (op.by) {
     const [a, e2] = needPerson(s, op.by);
     if (e2) return fail(e2);
-    if (a.loc !== p.loc) return fail(`${a.short} is not with ${p.short}`);
+    if (!together(a, p)) return fail(`${a.short} is not with ${p.short}`);
   }
   killPerson(s, p, String(op.cause || 'killed').slice(0, 120));
   return okr(`${p.short} dies: ${op.cause || ''}`);
@@ -607,7 +628,7 @@ OPS.restrain = (s, op) => {
   if (op.by) {
     const [a, e2] = needPerson(s, op.by, { acting: true });
     if (e2) return fail(e2);
-    if (a.loc !== p.loc) return fail(`${a.short} is not with ${p.short}`);
+    if (!together(a, p)) return fail(`${a.short} is not with ${p.short}`);
   }
   p.restrained = on;
   return okr(`${p.short} ${on ? 'restrained' : 'freed'}`);
@@ -644,7 +665,8 @@ OPS.note = (s, op) => okr(String(op.text || '').slice(0, 200));
 
 export const OP_NAMES = Object.keys(OPS);
 
-export function applyOps(s, ops) {
+export function applyOps(s, ops, { visited = {}, ends = {} } = {}) {
+  phaseCtx = { visited, ends };
   const applied = [];
   const rejected = [];
   for (const op of Array.isArray(ops) ? ops : []) {
@@ -661,10 +683,28 @@ export function applyOps(s, ops) {
     if (r.ok) applied.push({ op, summary: r.summary });
     else rejected.push({ op, reason: r.reason });
   }
+  phaseCtx = { visited: {}, ends: {} };
   return { applied, rejected };
 }
 
 // ---------------------------------------------------------------- eating
+
+// People name food loosely ("ration", "ration_pack#3", "GAL"). The intent to eat is
+// clear, so match generously, but only ever to food that is actually within reach.
+function matchFood(s, pid, ref) {
+  const exact = findItem(s, ref, pid, { seeHidden: false });
+  if (exact && exact.tags?.includes('food') && accessible(s, pid, exact)) return exact;
+  const foods = Object.values(s.items).filter((i) => i.qty > 0 && i.kcal && i.tags?.includes('food') && accessible(s, pid, i) && (!i.hidden || i.hiddenBy === pid));
+  if (!foods.length) return null;
+  const base = String(ref || '').toLowerCase().replace(/[#@].*$/, '');
+  const byKind = foods.find((i) => i.kind === base);
+  if (byKind) return byKind;
+  const words = base.split(/[^a-z]+/).filter((w) => w.length > 2);
+  const byWord = foods.find((i) => words.some((w) => i.name.toLowerCase().includes(w)));
+  if (byWord) return byWord;
+  const rank = (i) => (i.loc === pid ? 0 : 2) + (i.kind === 'ration_pack' ? 0 : 1);
+  return foods.sort((a, b) => rank(a) - rank(b) || b.qty - a.qty)[0];
+}
 
 export function applyEating(s, pid, list) {
   const p = s.people[pid];
@@ -672,8 +712,8 @@ export function applyEating(s, pid, list) {
   const ate = [];
   let kcal = 0;
   for (const e of list.slice(0, 6)) {
-    const it = findItem(s, e && e.item, pid, { seeHidden: false });
-    if (!it || !it.tags?.includes('food') || !accessible(s, pid, it)) continue;
+    const it = matchFood(s, pid, e && e.item);
+    if (!it) continue;
     const want = clamp(Math.floor(Number(e.qty) || 1), 1, 12);
     const n = consumeItem(s, it.id, want);
     kcal += (it.kcal || 0) * n;
