@@ -330,10 +330,26 @@ OPS.drop = (s, op) => {
   const [p, e] = needPerson(s, op.person);
   if (e) return fail(e);
   const it = findItem(s, op.item, p.id);
-  if (!it || it.loc !== p.id) return fail(`${p.short} is not carrying ${op.item}`);
+  // Something picked up earlier in the phase and carried here counts as carried.
+  if (!it || !(it.loc === p.id || (NODES[it.loc] && wasAt(p, it.loc)))) return fail(`${p.short} is not carrying ${op.item}`);
   const n = Math.min(it.qty, Math.max(1, Math.floor(op.qty ?? it.qty)));
   moveItem(s, it.id, n, p.loc);
   return okr(`${p.short} leaves ${n} × ${it.name} in ${NODES[p.loc].name}`);
+};
+
+// Carry things from one place to another within the phase (restocking a shelf,
+// moving supplies, emptying a room). Both places must be ones the person was in.
+OPS.move_item = (s, op) => {
+  const [p, e] = needPerson(s, op.by, { acting: true });
+  if (e) return fail(e);
+  const to = resolveNodeId(op.to);
+  if (!to) return fail(`unknown place "${op.to}"`);
+  if (!wasAt(p, to)) return fail(`${p.short} was not in ${NODES[to].name}`);
+  const it = findItem(s, op.item, p.id);
+  if (!accessible(s, p.id, it)) return fail(`${p.short} could not reach ${op.item}`);
+  const n = Math.min(it.qty, Math.max(1, Math.floor(op.qty ?? it.qty)));
+  moveItem(s, it.id, n, to);
+  return okr(`${p.short} moves ${n} × ${it.name} to ${NODES[to].name}`);
 };
 
 OPS.transfer = (s, op) => {

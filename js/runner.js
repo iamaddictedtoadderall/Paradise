@@ -163,11 +163,6 @@ export async function runPhase(s, ai, { tierAgents = 'default', tierReferee = 'd
       pp.moves[pid] = { from, target: r.target, reached: r.reached, blockedBy: r.blockedBy };
     }
     pp.speech = deliverSpeech(s, pp.decisions);
-    // Meals happen where people spend the shift, before the referee looks at it.
-    pp.eating = {};
-    for (const [pid, d] of Object.entries(pp.decisions)) {
-      if (d.eat?.length) pp.eating[pid] = applyEating(s, pid, d.eat);
-    }
     await checkpoint(s);
   }
 
@@ -202,7 +197,12 @@ export async function runPhase(s, ai, { tierAgents = 'default', tierReferee = 'd
   for (const u of gm.unknownOps || []) rejected.push({ op: u, reason: 'not a known operation' });
   for (const [pid, ex] of Object.entries(gm.exertion)) if (s.people[pid]) s.people[pid].exertion = ex;
 
-  const eating = pp.eating || {};
+  // Meals come after the referee's operations, so food that was restocked, served
+  // or handed over this phase can be eaten this phase.
+  const eating = {};
+  for (const [pid, d] of Object.entries(pp.decisions)) {
+    if (d.eat?.length) eating[pid] = applyEating(s, pid, d.eat);
+  }
   for (const [pid, d] of Object.entries(pp.decisions)) {
     const p = s.people[pid];
     if (phase === 'morning' && !d.skipped) {

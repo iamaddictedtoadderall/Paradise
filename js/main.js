@@ -135,7 +135,10 @@ async function persist(rec) {
     await store.saveState(state);
   } catch (e) {
     console.warn('save failed', e);
-    if (e && e.code === 'quota_exceeded') pause = { message: 'Saving failed: this artifact\'s storage is full. Start a new run or delete old ones.' };
+    pause = e && e.code === 'quota_exceeded'
+      ? { message: 'Saving failed: this artifact\'s storage is full. Start a new run to keep going.' }
+      : { message: `Saving failed (${(e && (e.code || e.message)) || 'unknown error'}). Progress since the last save may be lost if you close the page.` };
+    renderBanner();
   }
 }
 

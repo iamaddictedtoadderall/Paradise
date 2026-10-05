@@ -131,6 +131,7 @@ const OP_REFERENCE = `OPERATIONS (each is a JSON object; use ids exactly as list
 {"op":"move_person","person":ID,"to":PLACE}  — only for movement caused by actions (breaking in, being dragged, being thrown out)
 {"op":"take","person":ID,"item":ITEM_ID,"qty":N}  — pick up something in the same place
 {"op":"drop","person":ID,"item":ITEM_ID,"qty":N}  — put down something carried
+{"op":"move_item","by":ID,"item":ITEM_ID,"qty":N,"to":PLACE}  — carry things between two places the person was in this phase (restocking the galley from the stores, moving supplies)
 {"op":"transfer","from":ID,"to":ID,"item":ITEM_ID,"qty":N}  — hand over, or take from someone (by force or from the unconscious)
 {"op":"hide","person":ID,"item":ITEM_ID,"qty":N,"hidden":true}  — conceal an item in the person's current place (hidden:false reveals it)
 {"op":"consume","item":ITEM_ID,"qty":N,"by":ID}  — use something up (fuel, dressings, drugs, materials)
@@ -193,7 +194,7 @@ export function refereePrompt(s, phase, pp) {
   Intends: ${d.skipped ? '(no decision this shift)' : d.do || '(nothing in particular)'}
   Private intent: ${d.inner || '-'}
   Said: ${said || '-'}
-  Ate: ${pp.eating?.[pid]?.ate?.length ? pp.eating[pid].ate.join(', ') : 'nothing'}`);
+  Plans to eat: ${d.eat?.length ? d.eat.map((e) => `${e.qty} × ${e.item}`).join(', ') : 'nothing'}`);
   }
   const helpless = activePeople(s).filter((p) => !p.conscious).map((p) => `${p.id} is unconscious in ${p.loc}`);
 
@@ -207,7 +208,8 @@ RULES
 3. Only the listed items exist. A made thing must come from real materials the maker can reach, and they are used up ("create"). Without the relevant skill, results are crude or fail.
 4. Violence: resolve it plausibly and briefly, without gore. Surprise, weapons, strength, fighting ability, health and numbers matter. A person attacked defends themselves; bystanders intervene only if that fits what they intended or said. Severity 1 bruise, 2 cut or sprain, 3 serious wound or fracture, 4 severe, 5 life-threatening. Use "kill" only when death would be immediate.
 5. Movement has already happened: the location shown is where each person ended up, and each person also had access to wherever they started this ${phase === 'morning' ? 'shift' : 'evening'} (things done "before leaving" count). Use move_person when someone's own stated action takes them somewhere else, or when someone is dragged, thrown out or breaks in; it may cross several modules if every hatch on the way is passable for them. Never move people who did not choose to go.
-5b. Meals are already handled: what each person ate is shown below as "Ate". Never use operations for eating.
+5b. Meals happen automatically after your operations: each person eats what they planned, from food they carry or food in the place where they end up. Never use operations for the eating itself. But if someone restocks, serves, hands out, hoards or takes food, use move_item, transfer, take or drop so the food really is where your description says it is.
+5d. Your operations ARE what happens. Every change you describe in "text" or "scenes" (something moved, made, locked, broken, handed over) must have a matching operation, or it did not happen. If no operation can express it, do not describe it as done.
 5c. Use learn_code only when a code is actually said aloud in someone's presence or they watch it being entered.
 6. Speech has already been delivered to whoever was there. Do not repeat it, but let it shape how people respond.
 7. Locks: electronic hatch locks open with the master code (any hatch) or the engineering code (power room, life support, workshop) — check the codes each person knows. The food stores open with the stores key. Forcing a locked hatch takes a tool such as a crowbar and an hour or more, and is loud.

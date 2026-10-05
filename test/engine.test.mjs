@@ -255,3 +255,67 @@ test('daily summaries: prompt from the real log shape, defensive reading, latest
   assert.deepEqual(d.tensions, []);
   assert.equal(latestStory([{ day: 1, digest: { story: 'one' } }, { day: 2, digest: { story: 'two' } }], 2), 'one');
 });
+
+import { dbStore } from '../js/store.js';
+
+// A tiny in-memory stand-in for the artifact database, enforcing its size limit.
+function fakeDb() {
+  const docs = new Map();
+  const col = (path) => ({
+    path,
+    doc: (id) => docRef(`${path}/${id}`),
+    orderBy: () => col(path),
+    limit: () => col(path),
+    async get() {
+      const depth = path.split('/').length + 1;
+      const out = [...docs].filter(([k]) => k.startsWith(path + '/') && k.split('/').length === depth)
+        .map(([k, v]) => ({ id: k.split('/').pop(), exists: true, data: () => v }));
+      return { docs: out, size: out.length, empty: !out.length };
+    },
+  });
+  const docRef = (path) => ({
+    path, id: path.split('/').pop(),
+    async set(body) {
+      const size = JSON.stringify(body).length;
+      if (size > 256 * 1024) throw { code: 'invalid_argument', message: `document over 256 KiB (${size})` };
+      docs.set(path, body);
+    },
+    async get() { return { exists: docs.has(path), data: () => docs.get(path) }; },
+    collection: (c) => col(`${path}/${c}`),
+  });
+  return { docs, doc: docRef, collection: col };
+}
+
+test('saving splits memories and day phases, and loads back identically', async () => {
+  const db = fakeDb();
+  const store = dbStore(db, 'u1');
+  const s = newRunState('r1');
+  // Memories as large as the real run's: eight entries of ~3 KB each per person.
+  for (const p of Object.values(s.people)) p.recent = Array.from({ length: 8 }, (_, i) => ({ day: i, phase: 'evening', loc: 'GAL', text: 'x'.repeat(3200) }));
+  await store.saveState(s);
+  const ai = mockAI();
+  const m = await runPhase(s, ai);
+  await store.saveDay('r1', { day: 1, morning: m.phaseLog });
+  const e = await runPhase(s, ai);
+  await store.saveDay('r1', { day: 1, morning: m.phaseLog, evening: e.phaseLog, tick: e.tick });
+  await store.saveState(s);
+  for (const [k, v] of db.docs) assert.ok(JSON.stringify(v).length < 100 * 1024, `${k} is small`);
+  const back = await store.loadRun('r1');
+  assert.deepEqual(back.state, JSON.parse(JSON.stringify(s)));
+  assert.equal(back.days.length, 1);
+  assert.deepEqual(back.days[0].evening, JSON.parse(JSON.stringify(e.phaseLog)));
+  assert.ok(back.days[0].tick);
+});
+
+test('restocking and serving food feeds people in the same phase', () => {
+  const s = newRunState('t');
+  s.people.danny.loc = 'GAL';
+  // Danny went into the stores and came back to the galley this phase.
+  const ctx = { visited: { danny: ['GAL', 'STR'] }, ends: { danny: ['GAL', 'GAL'] } };
+  const r = applyOps(s, [{ op: 'move_item', by: 'danny', item: 'ration_pack@STR', qty: 30, to: 'GAL' }], ctx);
+  assert.equal(r.applied.length, 1, JSON.stringify(r.rejected));
+  assert.equal(Object.values(s.items).filter((i) => i.kind === 'ration_pack' && i.loc === 'GAL').reduce((a, i) => a + i.qty, 0), 90);
+  // The day-6 failure: an item named by its stores id, put down after being fetched.
+  const r2 = applyOps(s, [{ op: 'drop', person: 'danny', item: 'ration_pack@STR', qty: 5 }], ctx);
+  assert.equal(r2.applied.length, 1, JSON.stringify(r2.rejected));
+});

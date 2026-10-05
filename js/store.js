@@ -43,13 +43,54 @@ export function runMeta(state) {
   };
 }
 
-function dbStore(db, uid) {
+// Split for the artifact database's 256 KiB-per-document limit: each person's recent
+// memories live in their own document, and each day is stored as a small header plus
+// one document per phase. Older single-document runs still load.
+export function splitState(state) {
+  const core = { ...state, people: {} };
+  const memories = {};
+  for (const [id, p] of Object.entries(state.people)) {
+    const { recent, ...rest } = p;
+    core.people[id] = rest;
+    memories[id] = recent || [];
+  }
+  return { core, memories };
+}
+
+export function joinState(core, memories) {
+  const state = { ...core, people: {} };
+  for (const [id, p] of Object.entries(core.people)) state.people[id] = { ...p, recent: memories[id] ?? p.recent ?? [] };
+  return state;
+}
+
+export function splitDay(rec) {
+  const { morning, evening, ...head } = rec;
+  return { head: { ...head, split: true }, morning, evening };
+}
+
+export function joinDays(docs) {
+  const byDay = {};
+  for (const { id, body } of docs) {
+    const m = /^d(\d+)(?:-(morning|evening))?$/.exec(id);
+    if (!m) continue;
+    const day = Number(m[1]);
+    const rec = (byDay[day] = byDay[day] || { day });
+    if (m[2]) rec[m[2]] = body;
+    else Object.assign(rec, body);
+    delete rec.split;
+  }
+  return Object.values(byDay).sort((a, b) => a.day - b.day);
+}
+
+export function dbStore(db, uid) {
   const runs = db.doc(`data/users/${uid}/paradise`).collection('runs');
-  // One write at a time per document.
+  // One write at a time per document, and only when its content changed.
   const queue = new Map();
-  const write = (ref, body) => {
+  const lastWritten = new Map();
+  const write = (ref, json) => {
+    if (lastWritten.get(ref.path) === json) return Promise.resolve();
     const prev = queue.get(ref.path) || Promise.resolve();
-    const next = prev.catch(() => {}).then(() => ref.set(body));
+    const next = prev.catch(() => {}).then(() => ref.set({ json })).then(() => { lastWritten.set(ref.path, json); });
     queue.set(ref.path, next);
     return next;
   };
@@ -60,20 +101,30 @@ function dbStore(db, uid) {
       return snap.docs.map((d) => d.data());
     },
     async loadRun(id) {
-      const st = await runs.doc(id).collection('blob').doc('state').get();
-      if (!st.exists) return null;
+      const blob = await runs.doc(id).collection('blob').limit(100).get();
+      const docs = Object.fromEntries(blob.docs.map((d) => [d.id, JSON.parse(d.data().json)]));
+      if (!docs.state) return null;
+      const memories = {};
+      for (const [k, v] of Object.entries(docs)) if (k.startsWith('mem-')) memories[k.slice(4)] = v;
       const days = await runs.doc(id).collection('days').limit(1000).get();
       return {
-        state: JSON.parse(st.data().json),
-        days: days.docs.map((d) => JSON.parse(d.data().json)),
+        state: joinState(docs.state, memories),
+        days: joinDays(days.docs.map((d) => ({ id: d.id, body: JSON.parse(d.data().json) }))),
       };
     },
     async saveState(state) {
-      await write(runs.doc(state.runId).collection('blob').doc('state'), { json: JSON.stringify(state) });
-      await write(runs.doc(state.runId), runMeta(state));
+      const { core, memories } = splitState(state);
+      const blob = runs.doc(state.runId).collection('blob');
+      for (const [pid, mem] of Object.entries(memories)) await write(blob.doc(`mem-${pid}`), JSON.stringify(mem));
+      await write(blob.doc('state'), JSON.stringify(core));
+      await runs.doc(state.runId).set(runMeta(state));
     },
-    async saveDay(runId, dayLog) {
-      await write(runs.doc(runId).collection('days').doc(`d${dayLog.day}`), { json: JSON.stringify(dayLog) });
+    async saveDay(runId, rec) {
+      const { head, morning, evening } = splitDay(rec);
+      const days = runs.doc(runId).collection('days');
+      if (morning) await write(days.doc(`d${rec.day}-morning`), JSON.stringify(morning));
+      if (evening) await write(days.doc(`d${rec.day}-evening`), JSON.stringify(evening));
+      await write(days.doc(`d${rec.day}`), JSON.stringify(head));
     },
   };
 }
