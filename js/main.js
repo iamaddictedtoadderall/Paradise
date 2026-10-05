@@ -6,6 +6,7 @@ import { sampleAI, ERROR_COPY } from './ai.js';
 import { openStore, runMeta } from './store.js';
 import { createScene } from './scene.js';
 import { renderLegend, renderProgress, renderLog, renderCrew, renderStation, renderTrust, renderBrief, esc } from './ui.js';
+import { renderSummary, chroniclePrompt, normalizeDigest, latestStory } from './summary.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -33,6 +34,7 @@ let selectedPerson = null;
 let focusNode = null;
 let progress = {};
 let pause = null;
+let summarizing = false;
 
 // ---------------------------------------------------------------- rendering
 
@@ -41,7 +43,7 @@ function renderHeader() {
   els.phase.textContent = state.ended ? 'Run ended' : state.phase === 'morning' ? 'Day shift next' : 'Evening next';
   const label = state.ended ? 'Run ended' : running ? 'Running…' : state.pendingPhase || pause ? `Continue day ${state.day}` : state.phase === 'evening' ? `Play evening of day ${state.day}` : `Play day ${state.day}`;
   els.play.textContent = label;
-  els.play.disabled = running || !!state.ended || sample === null;
+  els.play.disabled = running || summarizing || !!state.ended || sample === null;
   els.stop.hidden = !running;
 }
 
@@ -69,7 +71,8 @@ function renderView() {
   for (const t of document.querySelectorAll('.tab')) t.setAttribute('aria-selected', String(t.dataset.tab === prefs.tab));
   const v = els.view;
   const top = v.scrollTop;
-  if (prefs.tab === 'log') renderLog(v, state, days, { inner: prefs.inner }, (on) => { prefs.inner = on; savePrefs(); renderView(); });
+  if (prefs.tab === 'summary') renderSummary(v, state, days, { canWrite: !!sample, busy: summarizing || running, onWrite: writeMissingSummaries });
+  else if (prefs.tab === 'log') renderLog(v, state, days, { inner: prefs.inner }, (on) => { prefs.inner = on; savePrefs(); renderView(); });
   else if (prefs.tab === 'crew') renderCrew(v, state, days, selectedPerson, (pid) => { selectPerson(pid); });
   else if (prefs.tab === 'station') renderStation(v, state, focusNode, (id) => { focusNode = id; scene?.focusNode(id); renderView(); });
   else if (prefs.tab === 'trust') renderTrust(v, state);
@@ -136,6 +139,38 @@ async function persist(rec) {
   }
 }
 
+// ---------------------------------------------------------------- summaries
+
+async function chronicle(rec, ai) {
+  const raw = await ai.referee(chroniclePrompt(state, rec, latestStory(days, rec.day)), { tier: 'default' });
+  const digest = normalizeDigest(raw);
+  if (!digest) return false;
+  rec.digest = digest;
+  await persist(rec);
+  return true;
+}
+
+async function writeMissingSummaries() {
+  if (running || summarizing || !sample) return;
+  summarizing = true;
+  abortCtl = new AbortController();
+  renderView();
+  const ai = sampleAI(sample, { signal: () => abortCtl.signal });
+  try {
+    for (const rec of days.filter((d) => d.tick && !d.digest).sort((a, b) => a.day - b.day)) {
+      if (!(await chronicle(rec, ai))) break;
+      renderView();
+    }
+  } catch (e) {
+    pause = { message: `The summary could not be written (${e?.message || e?.code || 'error'}). Try again from the Summary tab.` };
+    renderBanner();
+  } finally {
+    summarizing = false;
+    abortCtl = null;
+    renderView();
+  }
+}
+
 // ---------------------------------------------------------------- playing
 
 async function play({ skipReferee = false } = {}) {
@@ -163,8 +198,15 @@ async function play({ skipReferee = false } = {}) {
       progress = {};
       await persist(rec);
       renderAll({ animate: true });
+      if (res.tick) {
+        // One more call: the day's summary. If it fails, the Summary tab offers to retry.
+        progress = { summary: 'thinking' };
+        renderProgress(els.progress, progress, state);
+        try { await chronicle(rec, ai); } catch (e) { console.warn('summary failed', e); }
+        progress = {};
+      }
     }
-    if (prefs.tab === 'brief') { prefs.tab = 'log'; savePrefs(); }
+    if (prefs.tab === 'brief') { prefs.tab = 'summary'; savePrefs(); }
   } catch (e) {
     if (e instanceof Pause) {
       pause = { message: e.message || ERROR_COPY[e.code] || 'Paused.', canSkip: e.canSkip, code: e.code };
@@ -256,6 +298,6 @@ renderAll();
       if (r) { state = r.state; days = r.days; }
     }
   } catch (e) { console.warn('could not load runs', e); }
-  if (days.length && prefs.tab === 'brief') prefs.tab = 'log';
+  if (days.length && prefs.tab === 'brief') prefs.tab = 'summary';
   renderAll();
 })();

@@ -4,7 +4,7 @@
 import { NODES, HATCHES } from './data.js';
 import { geometricPath } from './engine.js';
 
-const T = window.THREE;
+const T = typeof window !== 'undefined' ? window.THREE : undefined;
 
 export const CREW_COLORS = {
   ruth: '#3987e5', tomas: '#d95926', hana: '#199e70', pavel: '#c98500',

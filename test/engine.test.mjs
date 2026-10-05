@@ -236,3 +236,22 @@ test('almost-JSON replies are repaired', () => {
   assert.deepEqual(repairJSON('{"say": [{"to": "all", "text": "hi"}'), { say: [{ to: 'all', text: 'hi' }] });
   assert.equal(repairJSON('no json here'), null);
 });
+
+import { chroniclePrompt, normalizeDigest, latestStory } from '../js/summary.js';
+
+test('daily summaries: prompt from the real log shape, defensive reading, latest story', async () => {
+  const s = newRunState('t');
+  const ai = mockAI();
+  const m = await runPhase(s, ai);
+  const e = await runPhase(s, ai);
+  const day = { day: 1, morning: m.phaseLog, evening: e.phaseLog, tick: e.tick };
+  const p = chroniclePrompt(s, day, '');
+  assert.match(p, /DAY 1 LOG/);
+  assert.match(p, /Ruth/);
+  assert.match(p, /Trust ratings/);
+  assert.equal(normalizeDigest({}), null);
+  const d = normalizeDigest({ headline: 'h', moments: ['a', 7, 'b'], tensions: 'x', story: 's' });
+  assert.deepEqual(d.moments, ['a', 'b']);
+  assert.deepEqual(d.tensions, []);
+  assert.equal(latestStory([{ day: 1, digest: { story: 'one' } }, { day: 2, digest: { story: 'two' } }], 2), 'one');
+});

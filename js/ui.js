@@ -32,8 +32,8 @@ export function renderProgress(el, status, state) {
   if (!entries.length) { el.innerHTML = ''; return; }
   const words = { waiting: 'waiting', thinking: 'thinking…', done: 'ready', failed: 'failed', declined: 'declined' };
   el.innerHTML = entries.map(([who, st]) => {
-    const name = who === 'referee' ? 'Referee' : state.people[who]?.short || who;
-    const color = who === 'referee' ? '#f0b43c' : CREW_COLORS[who];
+    const name = who === 'referee' ? 'Referee' : who === 'summary' ? 'Writing the day\'s summary' : state.people[who]?.short || who;
+    const color = who === 'referee' || who === 'summary' ? '#f0b43c' : CREW_COLORS[who];
     return `<span class="chip ${st}"><span class="dot" style="background:${color}"></span>${esc(name)} <span class="st">${words[st] || st}</span></span>`;
   }).join('');
 }

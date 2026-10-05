@@ -115,6 +115,33 @@ details.ref { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-3); }
 details.ref summary { cursor: pointer; }
 details.ref li { margin: 2px 0; }
 
+/* Summary */
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tile { background: var(--hull-2); border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 2px; min-width: 0; }
+.tile .tl { font-size: 12px; color: var(--ink-3); }
+.tile b { font-size: 20px; font-weight: 600; line-height: 1.2; }
+.tn { font-size: 12px; color: var(--ink-2); }
+.tn.warn { color: var(--warn); }
+.tn.bad { color: var(--serious); }
+.story { color: var(--ink) !important; font-size: 15px; line-height: 1.6; white-space: pre-line; }
+.small { font-size: 12px; }
+.kv.wide { grid-template-columns: minmax(110px, auto) 1fr; gap: 6px 14px; font-size: 13px; }
+.kv .dot, .t .dot, .story .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+ul.events { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+ul.events li { font-size: 13px; padding: 5px 10px; border-left: 3px solid var(--rule); background: var(--hull-2); border-radius: 0 var(--radius) var(--radius) 0; }
+ul.events li.violence { border-left-color: var(--crit); }
+ul.events li.made { border-left-color: var(--warn); }
+ul.events li.control { border-left-color: var(--signal); }
+ul.events li.power { border-left-color: #3987e5; }
+ul.events .when { font-family: var(--font-data); font-size: 11px; color: var(--ink-3); margin-right: 8px; }
+.digest { margin: 0 0 12px; }
+.digest .dh b { font-family: var(--font-display); letter-spacing: 0.04em; font-size: 17px; margin-right: 6px; }
+.digest ul { margin: 4px 0 0; padding-left: 18px; color: var(--ink-2); max-width: 70ch; }
+.digest ul.tens { color: var(--ink-3); }
+.digest ul.tens li::marker { content: "⚑ "; color: var(--serious); }
+.up { color: var(--good); font-size: 11px; margin-left: 4px; }
+.down { color: var(--serious); font-size: 11px; margin-left: 4px; }
+
 /* Crew */
 .crew { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
 .card { background: var(--hull-2); border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px; display: grid; gap: 6px; align-content: start; min-width: 0; cursor: pointer; text-align: left; }
@@ -221,6 +248,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
 
     <aside class="panel">
       <nav class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="summary" id="tab-summary" aria-selected="false">Summary</button>
         <button class="tab" role="tab" data-tab="log" id="tab-log" aria-selected="false">Log</button>
         <button class="tab" role="tab" data-tab="crew" id="tab-crew" aria-selected="false">Crew</button>
         <button class="tab" role="tab" data-tab="station" id="tab-station" aria-selected="false">Station</button>
