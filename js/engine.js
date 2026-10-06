@@ -194,9 +194,19 @@ export function findItem(s, ref, pid, { seeHidden = true } = {}) {
 
 // During a phase people move; the referee may describe things they did before
 // leaving or on the way. Ops accept any place the person was in this phase.
-let phaseCtx = { visited: {}, ends: {} };
+let phaseCtx = { visited: {}, ends: {}, s: null };
 export function wasAt(p, loc) {
-  return p.loc === loc || !!phaseCtx.visited[p.id]?.includes(loc);
+  if (p.loc === loc || phaseCtx.visited[p.id]?.includes(loc)) return true;
+  // While resolving a phase, someone can also step through a hatch they are able to
+  // open into the next room (reaching into the stores from the galley, say).
+  const s = phaseCtx.s;
+  if (!s) return false;
+  const here = new Set([p.loc, ...(phaseCtx.visited[p.id] || [])]);
+  for (const from of here) {
+    const hid = hatchBetween(s, from, loc);
+    if (hid && canPass(s, p.id, hid, from)) return true;
+  }
+  return false;
 }
 function together(a, b) {
   if (a.loc === b.loc) return true;
@@ -312,6 +322,7 @@ OPS.move_person = (s, op) => {
     const h = s.hatches[hid];
     if (!['open', 'closed', 'forced'].includes(h.state) && !canPass(s, p.id, hid, path[i - 1])) return fail(`the ${NODES[h.a].name} / ${NODES[h.b].name} hatch is ${h.state}`);
   }
+  if (phaseCtx.s) (phaseCtx.visited[p.id] = phaseCtx.visited[p.id] || []).push(...path);
   p.loc = to;
   return okr(`${p.short} moves to ${NODES[to].name}`);
 };
@@ -693,7 +704,7 @@ OPS.note = (s, op) => okr(String(op.text || '').slice(0, 200));
 export const OP_NAMES = Object.keys(OPS);
 
 export function applyOps(s, ops, { visited = {}, ends = {} } = {}) {
-  phaseCtx = { visited, ends };
+  phaseCtx = { visited, ends, s };
   const applied = [];
   const rejected = [];
   for (const op of Array.isArray(ops) ? ops : []) {
@@ -710,8 +721,8 @@ export function applyOps(s, ops, { visited = {}, ends = {} } = {}) {
     if (r.ok) applied.push({ op, summary: r.summary });
     else rejected.push({ op, reason: r.reason });
   }
-  phaseCtx = { visited: {}, ends: {} };
-  return { applied, rejected };
+  phaseCtx = { visited: {}, ends: {}, s: null };
+  return { applied, rejected, visited };
 }
 
 // ---------------------------------------------------------------- eating

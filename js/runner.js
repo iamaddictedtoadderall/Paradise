@@ -4,7 +4,7 @@
 import { NODES } from './data.js';
 import {
   actingPeople, activePeople, route, peopleAt, carriedBy, applyOps, applyEating, dailyTick,
-  checkEnd, neighbors, resolvePersonId, itemsAt, geometricPath, STABLE_DAYS_TO_END,
+  checkEnd, neighbors, resolvePersonId, itemsAt, geometricPath, readouts, STABLE_DAYS_TO_END,
 } from './engine.js';
 import { agentPrompt, refereePrompt, normalizeDecision, emptyDecision, normalizeReferee, placeName } from './prompts.js';
 
@@ -195,6 +195,12 @@ export async function runPhase(s, ai, { tierAgents = 'default', tierReferee = 'd
     ends[pid] = [m.from, m.reached];
   }
   const { applied, rejected } = applyOps(s, gm.ops, { visited, ends });
+  // Anyone who passed through a room with displays this phase saw what they showed.
+  const sawDisplays = {};
+  for (const p of activePeople(s)) {
+    const rooms = new Set([...(visited[p.id] || []), p.loc]);
+    sawDisplays[p.id] = ['CTRL', 'PWR', 'LS', 'HYD'].filter((r) => rooms.has(r));
+  }
   for (const u of gm.unknownOps || []) rejected.push({ op: u, reason: 'not a known operation' });
   for (const [pid, ex] of Object.entries(gm.exertion)) if (s.people[pid]) s.people[pid].exertion = ex;
 
@@ -217,7 +223,11 @@ export async function runPhase(s, ai, { tierAgents = 'default', tierReferee = 'd
   const obs = {};
   for (const p of activePeople(s)) {
     if (!p.conscious && !(p.id in pp.decisions)) continue;
-    const text = observationFor(s, p.id, phase, pp, gm, pp.speech, eating[p.id]);
+    let text = observationFor(s, p.id, phase, pp, gm, pp.speech, eating[p.id]);
+    for (const room of sawDisplays[p.id] || []) {
+      const r = readouts(s, room);
+      if (r) text += `\nIn ${placeName(room)} you saw the displays:\n${r}`;
+    }
     obs[p.id] = text;
     p.recent.push({ day: s.day, phase, loc: p.loc, text });
     if (p.recent.length > RECENT_KEEP) p.recent.splice(0, p.recent.length - RECENT_KEEP);

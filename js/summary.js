@@ -53,7 +53,7 @@ Write for someone who wants the most important things quickly. Be accurate: use 
 THE STORY SO FAR (your summary up to yesterday):
 ${prevStory || '(This is the first day.)'}
 
-DAY ${dayLog.day} LOG:
+DAY ${dayLog.day} LOG (the news came three days before day 1, so this is ${dayLog.day + 3} days after contact was lost):
 ${compactPhase(s, dayLog.morning, 'morning')}
 ${compactPhase(s, dayLog.evening, 'evening')}
 ${trust ? `\nTrust ratings given this evening (-5 to +5):\n${trust}` : ''}

@@ -348,3 +348,33 @@ test('people working elsewhere eat from the galley, unless they cannot get there
   s.people.hana.restrained = true;
   assert.equal(applyEating(s, 'hana', [{ item: 'ration_pack', qty: 1 }]).kcal, 0, 'restrained');
 });
+
+test('reaching into the next room through a hatch you can open', () => {
+  const s = newRunState('t');
+  s.people.danny.loc = 'GAL';
+  s.people.tomas.loc = 'GAL';
+  // Danny carries the stores key, so he can step through and fetch packs.
+  let r = applyOps(s, [{ op: 'move_item', by: 'danny', item: 'ration_pack@STR', qty: 20, to: 'GAL' }]);
+  assert.equal(r.applied.length, 1, JSON.stringify(r.rejected));
+  // Tomás has no key and the hatch is locked.
+  r = applyOps(s, [{ op: 'take', person: 'tomas', item: 'frozen_food', qty: 1 }]);
+  assert.equal(r.applied.length, 0);
+  // Once someone opens it, he can reach in.
+  r = applyOps(s, [{ op: 'hatch', hatch: 'h_str', state: 'open', by: 'danny' }, { op: 'take', person: 'tomas', item: 'frozen_food', qty: 1 }]);
+  assert.equal(r.applied.length, 2, JSON.stringify(r.rejected));
+});
+
+test('anyone who passes a display during a shift sees its readings', async () => {
+  const s = newRunState('t');
+  const base = mockAI();
+  const ai = {
+    agent: base.agent,
+    async referee() {
+      return { resolutions: [], ops: [{ op: 'move_person', person: 'danny', to: 'LS' }, { op: 'move_person', person: 'danny', to: 'GAL' }], scenes: [], sounds: [], exertion: {}, stable: false };
+    },
+  };
+  await runPhase(s, ai);
+  assert.equal(s.people.danny.loc, 'GAL');
+  assert.match(s.people.danny.recent.at(-1).text, /LIFE-SUPPORT PANEL/);
+  assert.doesNotMatch(s.people.tomas.recent.at(-1).text, /LIFE-SUPPORT PANEL/);
+});
