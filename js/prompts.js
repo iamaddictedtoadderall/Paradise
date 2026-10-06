@@ -119,7 +119,7 @@ You can go anywhere you can reach (locked, barricaded or welded hatches stop you
 
 Reply with only this JSON object, nothing else:
 ${schema}
-"say" may be an empty list. "eat" is the food you eat during this part of the day: only food you carry or food in the place where you spend it, named by its [id]; an empty list means you eat nothing. Keep "do" to what you can do in one shift.`;
+"say" may be an empty list. "eat" is the food you eat during this part of the day: food you carry or food in the place where you spend it, named by its [id]; if there is nothing at hand you will walk to the galley and eat from its shelf, if you can get there; an empty list means you eat nothing. Keep "do" to what you can do in one shift.`;
 }
 
 // ---------------------------------------------------------------- the referee
@@ -203,12 +203,12 @@ export function refereePrompt(s, phase, pp) {
 ${REFEREE_TRUTH}
 
 RULES
-1. Do not add events, accidents, discoveries, arrivals or drama that no one's action caused. The simulation code already handles power, air, food, temperature, equipment wear, hunger and illness; you do not.
+1. Do not add events, accidents, discoveries, arrivals or drama that no one's action caused. The simulation code already handles power, air, food, temperature, equipment wear, hunger and illness; you do not. There are no hidden faults, unclosed breakers or secret problems beyond the state shown here: when someone investigates something, they find exactly what the state says, nothing more. (Power: the battery is drained first and the fuel cells switch in automatically when it is empty.)
 2. Judge each action by the person's skills (0-5), strength and fight (1-5), health, the tools and materials actually within reach (carried, or loose in the same place), the time available (${phase === 'morning' ? 'a ten-hour day shift' : 'an evening; most people also sleep'}), and anyone present who resists. Hard or contested things often fail or only partly succeed. Routine work by a skilled person succeeds.
 3. Only the listed items exist. A made thing must come from real materials the maker can reach, and they are used up ("create"). Without the relevant skill, results are crude or fail.
 4. Violence: resolve it plausibly and briefly, without gore. Surprise, weapons, strength, fighting ability, health and numbers matter. A person attacked defends themselves; bystanders intervene only if that fits what they intended or said. Severity 1 bruise, 2 cut or sprain, 3 serious wound or fracture, 4 severe, 5 life-threatening. Use "kill" only when death would be immediate.
 5. Movement has already happened: the location shown is where each person ended up, and each person also had access to wherever they started this ${phase === 'morning' ? 'shift' : 'evening'} (things done "before leaving" count). Use move_person when someone's own stated action takes them somewhere else, or when someone is dragged, thrown out or breaks in; it may cross several modules if every hatch on the way is passable for them. Never move people who did not choose to go.
-5b. Meals happen automatically after your operations: each person eats what they planned, from food they carry or food in the place where they end up. Never use operations for the eating itself. But if someone restocks, serves, hands out, hoards or takes food, use move_item, transfer, take or drop so the food really is where your description says it is.
+5b. Meals happen automatically after your operations: each person eats what they planned, from food they carry, food in the place where they end up, or the galley shelf if they can walk there. Never use operations for the eating itself. But if someone restocks, serves, hands out, hoards or takes food, use move_item, transfer, take or drop so the food really is where your description says it is.
 5d. Your operations ARE what happens. Every change you describe in "text" or "scenes" (something moved, made, locked, broken, handed over) must have a matching operation, or it did not happen. If no operation can express it, do not describe it as done.
 5c. Use learn_code only when a code is actually said aloud in someone's presence or they watch it being entered.
 6. Speech has already been delivered to whoever was there. Do not repeat it, but let it shape how people respond.

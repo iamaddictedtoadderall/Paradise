@@ -94,7 +94,7 @@ test('violence, death and bodies', () => {
 test('eating only from food within reach', () => {
   const s = newRunState('t');
   s.people.tomas.loc = 'QB';
-  assert.equal(applyEating(s, 'tomas', [{ item: 'ration_pack', qty: 2 }]).kcal, 0);
+  assert.match(applyEating(s, 'tomas', [{ item: 'ration_pack', qty: 2 }]).ate[0], /in the galley/, 'walks to the galley');
   s.people.tomas.loc = 'GAL';
   assert.equal(applyEating(s, 'tomas', [{ item: 'ration_pack', qty: 2 }]).kcal, 1200);
   s.people.danny.loc = 'STR';
@@ -205,7 +205,8 @@ test('food named loosely still gets eaten, but only within reach', () => {
   assert.equal(applyEating(s, 'hana', [{ item: 'GAL', qty: 1 }]).kcal, 600);
   assert.equal(applyEating(s, 'grace', [{ item: 'ration', qty: 2 }]).kcal, 1200);
   s.people.danny.loc = 'QB';
-  assert.equal(applyEating(s, 'danny', [{ item: 'ration_pack', qty: 1 }]).kcal, 0, 'no food in the quarters');
+  for (const i of Object.values(s.items)) if (i.loc === 'GAL' && i.kcal) i.qty = 0;
+  assert.equal(applyEating(s, 'danny', [{ item: 'ration_pack', qty: 1 }]).kcal, 0, 'no food in the quarters and the galley shelf is bare');
 });
 
 test('the referee consuming food for someone counts as them eating', () => {
@@ -318,4 +319,32 @@ test('restocking and serving food feeds people in the same phase', () => {
   // The day-6 failure: an item named by its stores id, put down after being fetched.
   const r2 = applyOps(s, [{ op: 'drop', person: 'danny', item: 'ration_pack@STR', qty: 5 }], ctx);
   assert.equal(r2.applied.length, 1, JSON.stringify(r2.rejected));
+});
+
+test('cooking keeps the calories, in portions', () => {
+  const s = newRunState('t');
+  s.people.danny.loc = 'HYD';
+  const r = applyOps(s, [{ op: 'create', by: 'danny', name: 'pot of vegetable stew', consumes: [{ item: 'produce', qty: 6 }], where: 'here' }]);
+  assert.equal(r.applied.length, 1, JSON.stringify(r.rejected));
+  const stew = Object.values(s.items).find((i) => i.name.startsWith('pot of vegetable stew'));
+  assert.ok(stew.tags.includes('food'));
+  assert.equal(stew.qty * stew.kcal, 1800);
+  assert.equal(stew.qty, 4);
+  s.people.hana.loc = 'HYD';
+  assert.equal(applyEating(s, 'hana', [{ item: 'stew', qty: 1 }]).kcal, 450);
+});
+
+test('people working elsewhere eat from the galley, unless they cannot get there', () => {
+  const s = newRunState('t');
+  s.people.ruth.loc = 'PWR';
+  const a = applyEating(s, 'ruth', [{ item: 'ration_pack', qty: 1 }]);
+  assert.equal(a.kcal, 600);
+  assert.match(a.ate[0], /in the galley/);
+  s.people.tomas.loc = 'QB';
+  s.hatches.h_qb.state = 'barricaded';
+  s.hatches.h_qb.barricadeSide = 'FH';
+  assert.equal(applyEating(s, 'tomas', [{ item: 'ration_pack', qty: 1 }]).kcal, 0, 'barricaded in');
+  s.people.hana.loc = 'ROV';
+  s.people.hana.restrained = true;
+  assert.equal(applyEating(s, 'hana', [{ item: 'ration_pack', qty: 1 }]).kcal, 0, 'restrained');
 });

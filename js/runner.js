@@ -96,6 +96,7 @@ function observationFor(s, pid, phase, pp, gm, speech, eating) {
     if (so.reach === 'station' || near) out.push(`From the direction of ${placeName(so.from)}: ${so.text}`);
   }
   if (eating && eating.ate.length) out.push(`You ate ${eating.ate.join(', ')} (about ${eating.kcal} kcal).`);
+  else if (d?.eat?.length) out.push('You meant to eat, but there was no food you could get to.');
   if (phase === 'evening') {
     const k = Math.round(p.intakeToday);
     out.push(k > 0 ? `Altogether today you ate about ${k} kcal.` : 'You ate nothing at all today.');

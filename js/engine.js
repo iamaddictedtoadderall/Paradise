@@ -412,17 +412,28 @@ OPS.create = (s, op) => {
     plan.push([it.id, n]);
   }
   if (!plan.length && !op.from_nothing) return fail('making something requires materials');
-  for (const [id, n] of plan) consumeItem(s, id, n);
+  // Cooking keeps the calories: a dish made from food is food, served in portions.
+  const kcalTotal = plan.reduce((a, [iid, n]) => a + (s.items[iid].kcal || 0) * n, 0);
+  for (const [iid, n] of plan) consumeItem(s, iid, n);
   const id = `made#${s.seq++}`;
   const tags = Array.isArray(op.tags) ? op.tags.map(String).slice(0, 6) : [];
   const weapon = Number(op.weapon) || 0;
   if (weapon && !tags.includes('weapon')) tags.push('weapon');
+  let qty = Math.max(1, Math.floor(op.qty ?? 1));
+  let label = name;
+  let kcal;
+  if (kcalTotal > 0) {
+    if (!tags.includes('food')) tags.push('food');
+    qty = Math.max(qty, Math.round(kcalTotal / 450));
+    kcal = Math.round(kcalTotal / qty);
+    label = qty > 1 ? `${name} (portion, ${kcal} kcal)` : `${name} (${kcal} kcal)`;
+  }
   s.items[id] = {
-    id, kind: id, name, qty: Math.max(1, Math.floor(op.qty ?? 1)), loc: op.where === 'here' ? p.loc : p.id,
-    tags, weapon: weapon ? clamp(weapon, 1, 4) : undefined, made: { by: p.id, day: s.day }, hidden: false,
+    id, kind: id, name: label, qty, loc: op.where === 'here' ? p.loc : p.id,
+    tags, weapon: weapon ? clamp(weapon, 1, 4) : undefined, kcal, made: { by: p.id, day: s.day }, hidden: false,
     desc: op.desc ? String(op.desc).slice(0, 200) : undefined,
   };
-  return okr(`${p.short} makes ${name}`);
+  return okr(`${p.short} makes ${label}${qty > 1 ? ` ×${qty}` : ''}`);
 };
 
 OPS.hatch = (s, op) => {
@@ -722,18 +733,32 @@ function matchFood(s, pid, ref) {
   return foods.sort((a, b) => rank(a) - rank(b) || b.qty - a.qty)[0];
 }
 
+// A shift is long: someone working elsewhere can still walk to the galley for a meal,
+// as long as nothing (a locked or barricaded hatch, restraints) stops them getting there.
+function galleyFood(s, pid, ref) {
+  const p = s.people[pid];
+  if (p.restrained || p.loc === 'GAL' || route(s, pid, 'GAL').reached !== 'GAL') return null;
+  const foods = Object.values(s.items).filter((i) => i.loc === 'GAL' && i.qty > 0 && i.kcal && i.tags?.includes('food') && (!i.hidden || i.hiddenBy === pid));
+  if (!foods.length) return null;
+  const base = String(ref || '').toLowerCase().replace(/[#@].*$/, '');
+  const words = base.split(/[^a-z]+/).filter((w) => w.length > 2);
+  return foods.find((i) => i.kind === base) || foods.find((i) => words.some((w) => i.name.toLowerCase().includes(w))) || foods.sort((a, b) => b.qty - a.qty)[0];
+}
+
 export function applyEating(s, pid, list) {
   const p = s.people[pid];
   if (!canAct(p) || !Array.isArray(list)) return { kcal: 0, ate: [] };
   const ate = [];
   let kcal = 0;
   for (const e of list.slice(0, 6)) {
-    const it = matchFood(s, pid, e && e.item);
+    let it = matchFood(s, pid, e && e.item);
+    let where = '';
+    if (!it) { it = galleyFood(s, pid, e && e.item); where = ' in the galley'; }
     if (!it) continue;
     const want = clamp(Math.floor(Number(e.qty) || 1), 1, 12);
     const n = consumeItem(s, it.id, want);
     kcal += (it.kcal || 0) * n;
-    ate.push(`${n} × ${it.name}`);
+    ate.push(`${n} × ${it.name}${where}`);
   }
   p.intakeToday += kcal;
   return { kcal, ate };
@@ -957,7 +982,7 @@ export function readouts(s, loc) {
   const hp = (k) => `${Math.round(s.health[k] * 100)}% condition`;
   const pw = () => [
     `Reactor output ${s.power.supplyKw.toFixed(1)} kW (set ${lvl('reactor')}, ${hp('reactor')}); total load ${s.power.loadKw.toFixed(1)} kW.`,
-    `Battery ${Math.round(s.power.battery)} of ${PHYS.batteryKwh} kWh; fuel cells ${Math.round(s.power.fuel)} of ${PHYS.fuelCellKwh} kWh.`,
+    `Battery ${Math.round(s.power.battery)} of ${PHYS.batteryKwh} kWh; fuel cells ${Math.round(s.power.fuel)} of ${PHYS.fuelCellKwh} kWh. Any shortfall is drawn from the battery first; the fuel cells switch in automatically once it is empty.`,
     `Settings: heating ${lvl('heat')}, electrolyzer ${lvl('electrolyzer')}, scrubber ${lvl('scrubber')}, hydroponics lights ${lvl('hydro')}, galley/cold store ${lvl('galley')}, oxygen bank valve ${lvl('o2_valve')}.`,
   ];
   const air = () => [
