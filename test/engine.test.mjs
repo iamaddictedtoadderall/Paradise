@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { NODES, HATCHES, ITEMS, CREW } from '../js/data.js';
 import {
   newRunState, route, applyOps, applyEating, dailyTick, findItem, o2Pct, co2Pct, foodKcal, checkEnd,
-  geometricPath, STABLE_DAYS_TO_END, powerPlan,
+  geometricPath, STABLE_DAYS_TO_END, powerPlan, readouts,
 } from '../js/engine.js';
 import { agentPrompt, refereePrompt, normalizeDecision, normalizeReferee } from '../js/prompts.js';
 import { runPhase, deliverSpeech, Pause } from '../js/runner.js';
@@ -405,4 +405,15 @@ test('non-essential base load can be trimmed, but not below 60%', () => {
   assert.equal(r.applied.length, 1, JSON.stringify(r.rejected));
   assert.equal(s.levels.base, 0.6);
   assert.ok(Math.abs(before - powerPlan(s).loadKw - 0.8) < 0.01);
+});
+
+test('panels raise alarms and show the 3-day trend', () => {
+  const s = newRunState('t');
+  for (let d = 1; d <= 4; d++) s.history.push({ ...s.history[0], day: d, o2: 20.9 - d * 0.8 });
+  s.air.o2 = (17.4 / 100) * 1200 * (32 / 29);
+  const r = readouts(s, 'LS');
+  assert.match(r, /LOW OXYGEN ALARM: 17\.4%/);
+  assert.match(r, /down 2\.7 points over 3 days/);
+  assert.match(r, /Electrolyzer set to 60%/);
+  assert.doesNotMatch(readouts(newRunState('u'), 'LS'), /ALARM/);
 });

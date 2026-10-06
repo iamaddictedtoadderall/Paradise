@@ -997,9 +997,27 @@ export function readouts(s, loc) {
     `Battery ${Math.round(s.power.battery)} of ${PHYS.batteryKwh} kWh; fuel cells ${Math.round(s.power.fuel)} of ${PHYS.fuelCellKwh} kWh. Any shortfall is drawn from the battery first; the fuel cells switch in automatically once it is empty.`,
     `Settings: base systems ${lvl('base')}, heating ${lvl('heat')}, electrolyzer ${lvl('electrolyzer')}, scrubber ${lvl('scrubber')}, hydroponics lights ${lvl('hydro')}, galley/cold store ${lvl('galley')}, oxygen bank valve ${lvl('o2_valve')}.`,
   ];
+  // Real panels keep a short history and raise alarms; so do these.
+  const past = s.history.length >= 4 ? s.history[s.history.length - 4] : s.history[0];
+  const trend = (now, then, unit, digits = 1) => {
+    if (then == null) return '';
+    const d = now - then;
+    return Math.abs(d) < 10 ** -digits ? ' (steady over 3 days)' : ` (${d > 0 ? 'up' : 'down'} ${Math.abs(d).toFixed(digits)}${unit} over 3 days)`;
+  };
+  const alarms = () => {
+    const a = [];
+    const o2 = o2Pct(s);
+    const co2 = co2Pct(s);
+    if (o2 < 19.5) a.push(`LOW OXYGEN ALARM: ${o2.toFixed(1)}%, below the 19.5% safety limit${o2 < 16 ? '; DANGER: impaired judgement and collapse risk' : ''}`);
+    if (o2 > 23.5) a.push(`HIGH OXYGEN ALARM: ${o2.toFixed(1)}%, fire risk`);
+    if (co2 > 1) a.push(`HIGH CO2 ALARM: ${co2.toFixed(2)}%`);
+    if (s.tempC < 12) a.push(`LOW TEMPERATURE WARNING: ${s.tempC.toFixed(1)} °C`);
+    return a;
+  };
   const air = () => [
-    `Oxygen ${o2Pct(s).toFixed(1)}% (normal 20.9). CO2 ${co2Pct(s).toFixed(2)}% (normal under 0.5; dangerous above 3). Temperature ${s.tempC.toFixed(1)} °C.`,
-    `Oxygen bank ${Math.round(s.air.bank)} kg. Electrolyzer ${hp('electrolyzer')}, scrubber ${hp('scrubber')}.`,
+    ...alarms(),
+    `Oxygen ${o2Pct(s).toFixed(1)}%${trend(o2Pct(s), past?.o2, ' points')} (normal 20.9; alarm below 19.5). CO2 ${co2Pct(s).toFixed(2)}% (normal under 0.5; dangerous above 3). Temperature ${s.tempC.toFixed(1)} °C.`,
+    `Oxygen bank ${Math.round(s.air.bank)} kg. Electrolyzer set to ${lvl('electrolyzer')} (${hp('electrolyzer')}), scrubber ${hp('scrubber')}.`,
   ];
   if (loc === 'CTRL') {
     lines.push('CONSOLE:', ...air(), ...pw());
