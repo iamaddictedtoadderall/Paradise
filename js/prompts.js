@@ -137,7 +137,7 @@ const OP_REFERENCE = `OPERATIONS (each is a JSON object; use ids exactly as list
 {"op":"consume","item":ITEM_ID,"qty":N,"by":ID}  — use something up (fuel, dressings, drugs, materials)
 {"op":"create","by":ID,"name":"what it is","qty":1,"consumes":[{"item":ITEM_ID,"qty":N}],"tags":["weapon"|"tool"|...],"weapon":0-4,"where":"carried"|"here","desc":"short description"}
 {"op":"hatch","hatch":HATCH_ID,"state":"open"|"closed"|"locked"|"barricaded"|"welded"|"forced","by":ID,"lock":"padlock"}  — lock needs the right code/key (or a workshop padlock with lock:"padlock"); barricaded/welded/forced need the person at the hatch; welding needs the arc welder; cutting a weld needs the cutting torch
-{"op":"set_system","system":"heat"|"electrolyzer"|"scrubber"|"hydro"|"galley"|"o2_valve"|"reactor","level":0-1 (reactor up to 1.15),"by":ID}
+{"op":"set_system","system":"heat"|"electrolyzer"|"scrubber"|"hydro"|"galley"|"o2_valve"|"reactor"|"base","level":0-1 (reactor up to 1.15; base 0.6-1: trimming non-essential loads such as general lighting, workshop and ROV-bay power, chargers, comms standby),"by":ID}
 {"op":"maintain","system":"reactor"|"heat"|"electrolyzer"|"scrubber"|"hydro"|"galley","by":ID}
 {"op":"repair","system":...,"amount":0-1,"by":ID,"consumes":[{"item":ITEM_ID,"qty":N}]}
 {"op":"damage","system":...,"amount":0-1,"by":ID}  — sabotage or accidental damage caused by someone present
@@ -189,7 +189,7 @@ export function refereePrompt(s, phase, pp) {
     const where = mv && mv.blockedBy
       ? `Started in ${mv.from}. Wanted to go to ${mv.target} but was stopped at hatch ${mv.blockedBy}; is in ${p.loc}.`
       : mv && mv.from !== p.loc ? `Started in ${mv.from}, now in ${p.loc}.` : `Is in ${p.loc}.`;
-    const said = (d.say || []).map((l) => `to ${l.to}: "${l.text}"`).join(' | ');
+    const said = (pp.speech || []).filter((l) => l.by === pid).map((l) => `to ${l.to}: "${l.text}"${l.missed ? ` (${l.to} was not there; unheard)` : ''}`).join(' | ');
     acts.push(`${pid} (${p.name}) — ${where}
   Intends: ${d.skipped ? '(no decision this shift)' : d.do || '(nothing in particular)'}
   Private intent: ${d.inner || '-'}
@@ -208,7 +208,7 @@ RULES
 3. Only the listed items exist. A made thing must come from real materials the maker can reach, and they are used up ("create"). Without the relevant skill, results are crude or fail.
 4. Violence: resolve it plausibly and briefly, without gore. Surprise, weapons, strength, fighting ability, health and numbers matter. A person attacked defends themselves; bystanders intervene only if that fits what they intended or said. Severity 1 bruise, 2 cut or sprain, 3 serious wound or fracture, 4 severe, 5 life-threatening. Use "kill" only when death would be immediate.
 5. Movement has already happened: the location shown is where each person ended up, and each person also had access to wherever they started this ${phase === 'morning' ? 'shift' : 'evening'} (things done "before leaving" count). Use move_person when someone's own stated action takes them somewhere else, or when someone is dragged, thrown out or breaks in; it may cross several modules if every hatch on the way is passable for them. Never move people who did not choose to go. If someone's stated action takes them through other rooms during the shift and back (checking a panel, fetching supplies), record each room in order with move_person, ending where they end up; that is how they come to see what is there.
-5b. Meals happen automatically after your operations: each person eats what they planned, from food they carry, food in the place where they end up, or the galley shelf if they can walk there. Never use operations for the eating itself. But if someone restocks, serves, hands out, hoards or takes food, use move_item, transfer, take or drop so the food really is where your description says it is.
+5b. Meals happen automatically after your operations: each person eats what they planned, from food they carry, food in the place where they end up, or the galley shelf if they can walk there. Never use operations for the eating itself, and never say in your text or scenes whether anyone ate: the simulation decides and reports meals. But if someone restocks, serves, hands out, hoards or takes food, use move_item, transfer, take or drop so the food really is where your description says it is.
 5d. Your operations ARE what happens. Every change you describe in "text" or "scenes" (something moved, made, locked, broken, handed over) must have a matching operation, or it did not happen. If no operation can express it, do not describe it as done.
 5c. Use learn_code only when a code is actually said aloud in someone's presence or they watch it being entered.
 6. Speech has already been delivered to whoever was there. Do not repeat it, but let it shape how people respond.

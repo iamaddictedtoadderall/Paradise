@@ -34,6 +34,8 @@ function compactPhase(s, log, phase) {
     lines.push(`${who(s, l.by)}${to} in ${NODES[l.loc]?.name}: "${cut(l.text, 260)}"`);
   }
   for (const sc of log.gm?.scenes || []) lines.push(`Scene, ${NODES[sc.place]?.name}: ${cut(sc.text, 300)}`);
+  const meals = Object.entries(log.eating || {}).map(([pid, e]) => `${who(s, pid)} ${e.kcal}`);
+  if (meals.length) lines.push(`Meals actually eaten (kcal, from the simulation; trust these over any description): ${meals.join(', ')}`);
   const ops = (log.applied || []).map((a) => a.summary).filter(Boolean);
   if (ops.length) lines.push('What changed: ' + ops.slice(0, 30).join('; '));
   return lines.join('\n');

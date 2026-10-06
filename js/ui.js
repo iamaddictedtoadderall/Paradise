@@ -69,7 +69,7 @@ function renderPhase(state, phaseLog, phase, opts) {
       if (refused[pid]) lines.push(`<div class="line act muted">${dot(pid)}${esc(p.short)}: no turn this phase (${esc(refused[pid])}).</div>`);
     }
     for (const l of speech.filter((x) => x.loc === loc && x.channel === 'voice')) {
-      const to = l.to && state.people[l.to] ? ` <span class="chan">to ${esc(state.people[l.to].short)}</span>` : '';
+      const to = l.to && state.people[l.to] ? ` <span class="chan">to ${esc(state.people[l.to].short)}${l.missed ? ', who wasn\'t there' : ''}</span>` : '';
       lines.push(`<div class="line speech">${dot(l.by)}<span class="who">${esc(state.people[l.by].short)}</span>${to}: <q>${esc(l.text)}</q></div>`);
     }
     for (const sc of (gm.scenes || []).filter((x) => x.place === loc)) lines.push(`<div class="line scene">${esc(sc.text)}</div>`);
@@ -239,18 +239,18 @@ function drawChart(holder, c) {
 }
 
 export function renderStation(view, state, focusNode, onNode) {
-  const data = state.history.map((h) => ({ ...h, foodDays: h.food / (Math.max(1, h.alive) * 2400) }));
+  const data = state.history.map((h) => ({ ...h, foodDays: h.food / (Math.max(1, h.alive) * 2000) }));
   const charts = [
     chart({ title: 'Oxygen', unit: '%', data, key: 'o2', min: 15, max: 22, danger: 16.5, format: (v) => v.toFixed(1) }),
     chart({ title: 'CO2', unit: '%', data, key: 'co2', min: 0, max: 1, danger: 3, format: (v) => v.toFixed(2) }),
     chart({ title: 'Temperature', unit: ' °C', data, key: 'temp', min: 8, max: 22, danger: 10, format: (v) => v.toFixed(1) }),
     chart({ title: 'Stored energy', unit: ' kWh', data, key: 'energy', min: 0, max: 1000, format: (v) => fmt(v) }),
-    chart({ title: 'Food left', unit: ' days', data, key: 'foodDays', min: 0, max: 40, format: (v) => v.toFixed(0) }),
+    chart({ title: 'Food left (2,000 kcal a day each)', unit: ' days', data, key: 'foodDays', min: 0, max: 40, format: (v) => v.toFixed(0) }),
     chart({ title: 'Average health', unit: '', data, key: 'health', min: 0, max: 100, danger: 30, format: (v) => fmt(v) }),
   ];
   const lv = state.levels;
   const sysRows = [
-    ['Reactor', 'reactor'], ['Heating', 'heat'], ['Electrolyzer (O2)', 'electrolyzer'], ['CO2 scrubber', 'scrubber'],
+    ['Reactor', 'reactor'], ['Base systems', 'base'], ['Heating', 'heat'], ['Electrolyzer (O2)', 'electrolyzer'], ['CO2 scrubber', 'scrubber'],
     ['Hydroponics lights', 'hydro'], ['Galley & cold store', 'galley'], ['O2 bank valve', 'o2_valve'],
   ];
   let html = `<h2>Station</h2><p class="muted">The true state of the station. The crew only see these numbers on the displays in the control room, power room, life support and hydroponics bay.</p>`;
@@ -259,7 +259,7 @@ export function renderStation(view, state, focusNode, onNode) {
   const plan = state.power.served || {};
   for (const [label, k] of sysRows) {
     const cond = state.health[k];
-    html += `<tr><td>${label}</td><td class="n">${Math.round((lv[k] ?? 0) * 100)}%</td><td class="n">${cond == null ? '—' : Math.round(cond * 100) + '%'}</td><td class="n">${k in plan ? Math.round(plan[k] * 100) + '%' : '—'}</td></tr>`;
+    html += `<tr><td>${label}</td><td class="n">${Math.round((lv[k] ?? (k === 'base' ? 1 : 0)) * 100)}%</td><td class="n">${cond == null ? '—' : Math.round(cond * 100) + '%'}</td><td class="n">${k in plan ? Math.round(plan[k] * 100) + '%' : '—'}</td></tr>`;
   }
   html += `</tbody></table></div><p class="muted" style="margin-top:6px">Reactor ${state.power.supplyKw} kW · load ${state.power.loadKw} kW · battery ${fmt(state.power.battery)} kWh · fuel cells ${fmt(state.power.fuel)} kWh · O2 bank ${fmt(state.air.bank)} kg · crop ${Math.round(state.crop * 100)}%.</p>`;
 

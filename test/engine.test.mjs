@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { NODES, HATCHES, ITEMS, CREW } from '../js/data.js';
 import {
   newRunState, route, applyOps, applyEating, dailyTick, findItem, o2Pct, co2Pct, foodKcal, checkEnd,
-  geometricPath, STABLE_DAYS_TO_END,
+  geometricPath, STABLE_DAYS_TO_END, powerPlan,
 } from '../js/engine.js';
 import { agentPrompt, refereePrompt, normalizeDecision, normalizeReferee } from '../js/prompts.js';
 import { runPhase, deliverSpeech, Pause } from '../js/runner.js';
@@ -377,4 +377,32 @@ test('anyone who passes a display during a shift sees its readings', async () =>
   assert.equal(s.people.danny.loc, 'GAL');
   assert.match(s.people.danny.recent.at(-1).text, /LIFE-SUPPORT PANEL/);
   assert.doesNotMatch(s.people.tomas.recent.at(-1).text, /LIFE-SUPPORT PANEL/);
+});
+
+test('speech reaches people shared at the start or end of the shift, and speakers learn when it missed', () => {
+  const s = newRunState('t');
+  s.people.victoria.loc = 'PWR';
+  s.people.danny.loc = 'HYD';
+  s.people.ruth.loc = 'QA';
+  const moves = {
+    victoria: { from: 'GAL', reached: 'PWR' },
+    danny: { from: 'GAL', reached: 'HYD' },
+    ruth: { from: 'QA', reached: 'QA' },
+  };
+  const lines = deliverSpeech(s, {
+    victoria: { say: [{ to: 'Danny', text: 'Breakfast first, then Power.' }, { to: 'Ruth', text: 'Ruth?' }] },
+  }, moves);
+  assert.ok(lines[0].heardBy.includes('danny'), 'heard over breakfast');
+  assert.equal(lines[0].missed, false);
+  assert.equal(lines[1].missed, true, 'Ruth was never in the galley or power room');
+});
+
+test('non-essential base load can be trimmed, but not below 60%', () => {
+  const s = newRunState('t');
+  s.levels.heat = 0; // with heating on, the thermostat would make up most of the saving
+  const before = powerPlan(s).loadKw;
+  const r = applyOps(s, [{ op: 'set_system', system: 'base', level: 0.2, by: 'pavel' }]);
+  assert.equal(r.applied.length, 1, JSON.stringify(r.rejected));
+  assert.equal(s.levels.base, 0.6);
+  assert.ok(Math.abs(before - powerPlan(s).loadKw - 0.8) < 0.01);
 });

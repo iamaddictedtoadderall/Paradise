@@ -7,7 +7,7 @@ export const clone = (o) => JSON.parse(JSON.stringify(o));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const round = (v, d = 1) => Math.round(v * 10 ** d) / 10 ** d;
 
-export const SYSTEM_ROOM = { reactor: 'PWR', heat: 'PWR', electrolyzer: 'LS', scrubber: 'LS', o2_valve: 'LS', hydro: 'HYD', galley: 'GAL' };
+export const SYSTEM_ROOM = { reactor: 'PWR', heat: 'PWR', electrolyzer: 'LS', scrubber: 'LS', o2_valve: 'LS', hydro: 'HYD', galley: 'GAL', base: 'PWR' };
 export const ENG_HATCHES = new Set(['h_pwr', 'h_ls', 'h_wrk']);
 export const STABLE_DAYS_TO_END = 14;
 
@@ -278,7 +278,7 @@ export function powerPlan(s) {
   const o2Need = clamp((o2Target - s.air.o2 + use) / PHYS.electrolyzerKgDay, 0, 1);
   const co2Need = clamp((s.air.co2 - 0.9 + people.length * PHYS.co2PerPerson) / PHYS.scrubberKgDay, 0, 1);
   const want = {
-    base: SYSTEMS.base.kw,
+    base: SYSTEMS.base.kw * clamp(lv.base ?? 1, SYSTEMS.base.min, 1),
     electrolyzer: SYSTEMS.electrolyzer.kw * Math.min(clamp(lv.electrolyzer, 0, 1), o2Need) * (h.electrolyzer > 0 ? 1 : 0),
     scrubber: SYSTEMS.scrubber.kw * Math.min(clamp(lv.scrubber, 0, 1), co2Need) * (h.scrubber > 0 ? 1 : 0),
     hydro: SYSTEMS.hydro.kw * clamp(lv.hydro, 0, 1) * (h.hydro > 0 ? 1 : 0),
@@ -540,7 +540,8 @@ OPS.set_system = (s, op) => {
   const err = systemAccess(s, p, sys);
   if (err) return fail(err);
   const max = sys === 'reactor' ? 1.15 : 1;
-  const lv = clamp(Number(op.level), 0, max);
+  const min = sys === 'base' ? SYSTEMS.base.min : 0;
+  const lv = clamp(Number(op.level), min, max);
   if (!Number.isFinite(lv)) return fail('level must be a number');
   s.levels[sys] = round(lv, 2);
   return okr(`${p.short} sets ${sys} to ${Math.round(lv * 100)}%`);
@@ -989,12 +990,12 @@ export function bodyFeel(s, p) {
 
 export function readouts(s, loc) {
   const lines = [];
-  const lvl = (k) => `${Math.round((s.levels[k] ?? 0) * 100)}%`;
+  const lvl = (k) => `${Math.round((s.levels[k] ?? (k === 'base' ? 1 : 0)) * 100)}%`;
   const hp = (k) => `${Math.round(s.health[k] * 100)}% condition`;
   const pw = () => [
     `Reactor output ${s.power.supplyKw.toFixed(1)} kW (set ${lvl('reactor')}, ${hp('reactor')}); total load ${s.power.loadKw.toFixed(1)} kW.`,
     `Battery ${Math.round(s.power.battery)} of ${PHYS.batteryKwh} kWh; fuel cells ${Math.round(s.power.fuel)} of ${PHYS.fuelCellKwh} kWh. Any shortfall is drawn from the battery first; the fuel cells switch in automatically once it is empty.`,
-    `Settings: heating ${lvl('heat')}, electrolyzer ${lvl('electrolyzer')}, scrubber ${lvl('scrubber')}, hydroponics lights ${lvl('hydro')}, galley/cold store ${lvl('galley')}, oxygen bank valve ${lvl('o2_valve')}.`,
+    `Settings: base systems ${lvl('base')}, heating ${lvl('heat')}, electrolyzer ${lvl('electrolyzer')}, scrubber ${lvl('scrubber')}, hydroponics lights ${lvl('hydro')}, galley/cold store ${lvl('galley')}, oxygen bank valve ${lvl('o2_valve')}.`,
   ];
   const air = () => [
     `Oxygen ${o2Pct(s).toFixed(1)}% (normal 20.9). CO2 ${co2Pct(s).toFixed(2)}% (normal under 0.5; dangerous above 3). Temperature ${s.tempC.toFixed(1)} °C.`,

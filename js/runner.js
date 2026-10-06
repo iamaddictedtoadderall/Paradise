@@ -37,30 +37,38 @@ function hasRadio(s, pid) {
 }
 
 // Who hears each spoken line, given everyone's position after moving.
-export function deliverSpeech(s, decisions) {
+// Who hears each spoken line. A shift is long: you talk to whoever you share a room
+// with at its start (breakfast) or its end, and you know when the person you were
+// talking to was not there.
+export function deliverSpeech(s, decisions, moves = {}) {
+  const places = (id) => {
+    const m = moves[id];
+    return m ? [...new Set([m.from, m.reached])] : [s.people[id].loc];
+  };
   const lines = [];
   for (const [pid, d] of Object.entries(decisions)) {
     const p = s.people[pid];
     if (!p || !p.alive || !p.aboard) continue;
+    const mine = places(pid);
+    const near = (o) => places(o.id).some((n) => mine.includes(n));
     for (const l of d.say || []) {
       const to = (l.to || 'all').toLowerCase();
       let channel = 'voice';
       let hearers;
-      if (to === 'radio') {
-        if (!hasRadio(s, pid)) { channel = 'voice'; }
-        else {
-          channel = 'radio';
-          hearers = activePeople(s).filter((o) => o.id !== pid && o.conscious && (hasRadio(s, o.id) || o.loc === p.loc));
-        }
-      } else if (to === 'pa') {
-        if (p.loc === 'CTRL') {
-          channel = 'PA';
-          hearers = activePeople(s).filter((o) => o.id !== pid && o.conscious);
-        }
+      if (to === 'radio' && hasRadio(s, pid)) {
+        channel = 'radio';
+        hearers = activePeople(s).filter((o) => o.id !== pid && o.conscious && (hasRadio(s, o.id) || near(o)));
+      } else if (to === 'pa' && mine.includes('CTRL')) {
+        channel = 'PA';
+        hearers = activePeople(s).filter((o) => o.id !== pid && o.conscious);
       }
-      if (!hearers) hearers = peopleAt(s, p.loc).filter((o) => o.id !== pid && o.conscious);
+      if (!hearers) hearers = activePeople(s).filter((o) => o.id !== pid && o.conscious && near(o));
       const target = resolvePersonId(s, l.to);
-      lines.push({ by: pid, loc: p.loc, channel, to: target || (channel === 'voice' ? 'all' : channel), text: l.text, heardBy: hearers.map((h) => h.id) });
+      const heardBy = hearers.map((h) => h.id);
+      lines.push({
+        by: pid, loc: p.loc, channel, to: target || (channel === 'voice' ? 'all' : channel), text: l.text, heardBy,
+        missed: !!(target && target !== pid && !heardBy.includes(target)),
+      });
     }
   }
   return lines;
@@ -79,7 +87,10 @@ function observationFor(s, pid, phase, pp, gm, speech, eating) {
     }
   }
   const d = pp.decisions[pid];
-  if (d && d.say?.length) out.push('You said: ' + d.say.map((l) => `"${l.text}"`).join(' '));
+  for (const l of speech.filter((x) => x.by === pid)) {
+    const to = l.to && s.people[l.to] ? ` to ${s.people[l.to].short}` : '';
+    out.push(`You said${to}: "${l.text}"${l.missed ? ` (but ${s.people[l.to].short} was not there to hear it)` : !l.heardBy.length && l.channel === 'voice' ? ' (nobody was there to hear it)' : ''}`);
+  }
   for (const l of speech) {
     if (l.by === pid || !l.heardBy.includes(pid)) continue;
     const who = s.people[l.by].name;
@@ -163,7 +174,7 @@ export async function runPhase(s, ai, { tierAgents = 'default', tierReferee = 'd
       p.loc = r.reached;
       pp.moves[pid] = { from, target: r.target, reached: r.reached, blockedBy: r.blockedBy };
     }
-    pp.speech = deliverSpeech(s, pp.decisions);
+    pp.speech = deliverSpeech(s, pp.decisions, pp.moves);
     await checkpoint(s);
   }
 

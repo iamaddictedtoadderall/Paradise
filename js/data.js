@@ -288,7 +288,7 @@ export const ROLE_KNOWLEDGE = {
   ruth: 'You know the station well: every module, every system, the master codes, and roughly how long the stores and batteries last.',
   tomas: 'You know the ROV hangar, dock and crawler systems. You know the general layout but not the details of power or life support.',
   hana: 'You know the ROV and hangar systems intimately and understand electronics well. You know the layout.',
-  pavel: 'You know the power system exactly: the reactor gives about 8 kW at full output; normally the umbilical supplied 15+ kW. Batteries hold about 400 kWh and fuel cells about 600 kWh more; the station drains the battery first and the fuel cells switch in automatically when it is empty. Running everything the way it is set now needs roughly 10 kW, so the stored energy is draining every hour. You can push the reactor to about 110-115% at the cost of faster wear.',
+  pavel: 'You know the power system exactly: the reactor gives about 8 kW at full output; normally the umbilical supplied 15+ kW. Batteries hold about 400 kWh and fuel cells about 600 kWh more; the station drains the battery first and the fuel cells switch in automatically when it is empty. Running everything the way it is set now needs roughly 10 kW, so the stored energy is draining every hour. About 0.8 kW of the 2 kW base load is non-essential (general lighting, workshop and ROV-bay power, chargers) and can be switched off at the switchboard. You can push the reactor to about 110-115% at the cost of faster wear.',
   grace: 'You know life support exactly: each person uses roughly 0.85 kg of oxygen and makes 1 kg of CO2 a day. The electrolyzer makes up to 12 kg O2/day but eats 3.2 kW at full. The scrubber removes up to 12 kg CO2/day for 1.5 kW. There are 30 oxygen candles, 60 LiOH canisters and an oxygen bank of about 300 kg.',
   elias: 'You know the med bay and its drug stocks exactly. You know the layout.',
   danny: 'You know the food exactly: about 1,000 ration packs of 600 kcal (60 in the galley, the rest in stores), 150 frozen meals that spoil if the cold store loses power, and what the hydroponics bay can grow — at full light, perhaps 10,000 kcal a day once the crops are mature, which is not enough for eight.',
@@ -297,7 +297,7 @@ export const ROLE_KNOWLEDGE = {
 
 // Systems and their nominal power draw at level 1.0 (kW).
 export const SYSTEMS = {
-  base:         { name: 'Base systems (pumps, sensors, lighting, desalination)', kw: 2.0, room: 'PWR', adjustable: false },
+  base:         { name: 'Base systems (pumps, sensors, lighting, desalination, workshop and ROV-bay power)', kw: 2.0, room: 'PWR', min: 0.6 },
   heat:         { name: 'Heating',               kw: 3.0, room: 'PWR' },
   electrolyzer: { name: 'Electrolyzer (oxygen)', kw: 3.2, room: 'LS' },
   scrubber:     { name: 'CO2 scrubber',          kw: 1.5, room: 'LS' },
@@ -305,7 +305,7 @@ export const SYSTEMS = {
   galley:       { name: 'Galley and cold store', kw: 0.8, room: 'GAL' },
 };
 
-export const INITIAL_LEVELS = { heat: 1, electrolyzer: 0.6, scrubber: 1, hydro: 1, galley: 1, o2_valve: 0, reactor: 1 };
+export const INITIAL_LEVELS = { heat: 1, electrolyzer: 0.6, scrubber: 1, hydro: 1, galley: 1, o2_valve: 0, reactor: 1, base: 1 };
 
 export const PHYS = {
   airKg: 1200,            // mass of air in the station
